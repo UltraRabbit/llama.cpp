@@ -1006,9 +1006,13 @@ private:
 
                 ret->prompt_save(*prompt_cache);
 
+                SRV_WRN("prompt cache save took %.2f ms\n", (ggml_time_us() - t_start) / 1000.0);
+                
                 if (!ret->prompt_load(*prompt_cache, task.tokens)) {
                     ret->prompt_clear(false);
                 }
+
+                SRV_WRN("prompt cache load took %.2f ms\n", (ggml_time_us() - t_start) / 1000.0);
 
                 prompt_cache->update();
 
