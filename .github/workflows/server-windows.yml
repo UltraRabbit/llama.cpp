@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   server-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     
     env:
       HIPSDK_INSTALLER_VERSION: "26.Q1"
