@@ -1924,7 +1924,7 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
         //       see: https://github.com/ggml-org/llama.cpp/pull/16825#issuecomment-3460868350
         apply_ubatch(sinfo, ubatch);
 
-        LLAMA_LOG_DEBUG("%s: cell_count = %d, dest_seq_id = %d\n", __func__, cell_count, dest_seq_id);
+        LLAMA_LOG_INFO("%s: cell_count = %d, dest_seq_id = %d\n", __func__, cell_count, dest_seq_id);
 
         // DEBUG CHECK: verify that all cells were allocated and have correct seq_id and pos values
         GGML_ASSERT(sinfo.n_stream() == 1);
@@ -1936,12 +1936,14 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
         }
     } else {
         // whole KV cache restore
-
+        
         if (cell_count > cells.size()) {
             LLAMA_LOG_ERROR("%s: not enough cells in kv cache\n", __func__);
             return false;
         }
 
+        LLAMA_LOG_INFO("%s: cell_count = %d whole KV cache restore.\n", __func__, cell_count);
+        
         clear(true);
 
         for (uint32_t i = 0; i < cell_count; ++i) {
