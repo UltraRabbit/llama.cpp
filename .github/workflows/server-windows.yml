@@ -108,12 +108,14 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
-            -DGGML_CPU=OFF `
+            -DGGML_CPU=ON `
+            -DGGML_RPC=ON `
             -DGPU_TARGETS="${{ matrix.gpu_targets }}" `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DGGML_HIP=ON `
+            -DBUILD_SHARED_LIBS=ON `
             -DLLAMA_BUILD_BORINGSSL=ON
-          cmake --build build --target ggml-hip -j ${env:NUMBER_OF_PROCESSORS}
+          cmake --build build -j ${env:NUMBER_OF_PROCESSORS}
           #md "build\bin\rocblas\library\"
           #md "build\bin\hipblaslt\library"
           #cp "${env:HIP_PATH}\bin\libhipblas.dll" "build\bin\"
