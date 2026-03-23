@@ -2041,9 +2041,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
         if (cell_count) {
             if (sinfo.is_contiguous()) {
                 // Fast path: contiguous cells, single memcpy
+                LLAMA_LOG_INFO("%s: %zu k-cells contiguous copy.\n", __func__, cell_count);
                 ggml_backend_tensor_set(k, io.read(cell_count * k_size_row), sinfo.head() * k_size_row, cell_count * k_size_row);
             } else {
                 // Slow path: scatter to non-contiguous positions
+                LLAMA_LOG_INFO("%s: %zu k-cells non-contiguous copy.\n", __func__, cell_count); 
                 const void * src = io.read(cell_count * k_size_row);
                 for (uint32_t i = 0; i < cell_count; ++i) {
                     const size_t dst_offset = sinfo.idxs[0][i] * k_size_row;
@@ -2085,9 +2087,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
             if (cell_count) {
                 if (sinfo.is_contiguous()) {
                     // Fast path: contiguous cells, single memcpy
+                    LLAMA_LOG_INFO("%s: %zu v-cells contiguous copy.\n", __func__, cell_count);
                     ggml_backend_tensor_set(v, io.read(cell_count * v_size_row), sinfo.head() * v_size_row, cell_count * v_size_row);
                 } else {
                     // Slow path: scatter to non-contiguous positions
+                    LLAMA_LOG_INFO("%s: %zu v-cells non-contiguous copy.\n", __func__, cell_count);
                     const void * src = io.read(cell_count * v_size_row);
                     for (uint32_t i = 0; i < cell_count; ++i) {
                         const size_t dst_offset = sinfo.idxs[0][i] * v_size_row;
@@ -2137,6 +2141,7 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
             if (cell_count) {
                 if (sinfo.is_contiguous()) {
                     // Fast path: contiguous cells
+                    LLAMA_LOG_INFO("%s: %zu v-cells(transposed) contiguous copy.\n", __func__, cell_count);
                     const uint32_t h = sinfo.head();
                     for (uint32_t j = 0; j < n_embd_v_gqa; ++j) {
                         const size_t dst_offset = (h + j * cells.size()) * v_size_el;
@@ -2144,6 +2149,7 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
                     }
                 } else {
                     // Slow path: scatter to non-contiguous positions
+                    LLAMA_LOG_INFO("%s: %zu v-cells(transposed) non-contiguous copy.\n", __func__, cell_count);
                     for (uint32_t j = 0; j < n_embd_v_gqa; ++j) {
                         const void * src = io.read(cell_count * v_size_el);
                         for (uint32_t i = 0; i < cell_count; ++i) {
