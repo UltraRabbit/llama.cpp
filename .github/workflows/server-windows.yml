@@ -109,7 +109,7 @@ jobs:
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
             -DGGML_CPU=ON `
-            -DGGML_RPC=ON `
+            -DGGML_RPC=OFF `
             -DGGML_CPU_ALL_VARIANTS=ON `
             -DGPU_TARGETS="${{ matrix.gpu_targets }}" `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
