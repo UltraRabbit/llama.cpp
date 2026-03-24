@@ -4,15 +4,29 @@ name: Server-windows
 on:
   workflow_dispatch: # allows manual triggering
     inputs:
-      sha:
-        description: 'Commit SHA1 to build'
-        required: false
-        type: string
+      create_release:
+        description: 'Create new release'
+        required: true
+        type: boolean
   push:
     branches:
       - master
-    paths: ['.github/workflows/server.yml', '**/CMakeLists.txt', '**/Makefile', '**/*.h', '**/*.hpp', '**/*.c', '**/*.cpp', '**/*.cu', '**/*.swift', '**/*.m', 'tools/server/**.*']
-
+    paths: [
+      '.github/workflows/release.yml',
+      '**/CMakeLists.txt',
+      '**/.cmake',
+      '**/*.h',
+      '**/*.hpp',
+      '**/*.c',
+      '**/*.cpp',
+      '**/*.cu',
+      '**/*.cuh',
+      '**/*.swift',
+      '**/*.m',
+      '**/*.metal',
+      '**/*.comp',
+      '**/*.glsl'
+    ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
@@ -20,11 +34,62 @@ concurrency:
 
 env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-  CMAKE_ARGS: "-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON"
+  CMAKE_ARGS: "-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=OFF"
 
 
 jobs:
-  server-windows:
+  windows-cpu:
+    runs-on: windows-2025
+
+    strategy:
+      matrix:
+        include:
+          - arch: 'x64'
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-latest-cpu-${{ matrix.arch }}
+          variant: ccache
+          evict-old-files: 1d
+
+      - name: Install Ninja
+        run: |
+          choco install ninja
+
+      - name: Build
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch == 'x64' && 'x64' || 'amd64_arm64' }}
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -D CMAKE_TOOLCHAIN_FILE=cmake/${{ matrix.arch }}-windows-llvm.cmake ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=${{ matrix.arch == 'x64' && 'ON' || 'OFF' }} ^
+            -DGGML_OPENMP=ON ^
+            ${{ env.CMAKE_ARGS }}
+          cmake --build build --config Release
+
+      - name: Pack artifacts
+        id: pack_artifacts
+        run: |
+          Copy-Item "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\14.44.35112\debug_nonredist\${{ matrix.arch }}\Microsoft.VC143.OpenMP.LLVM\libomp140.${{ matrix.arch == 'x64' && 'x86_64' || 'aarch64' }}.dll" .\build\bin\Release\
+          7z a -snl llama-bin-win-cpu-${{ matrix.arch }}.zip .\build\bin\Release\*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          path: llama-bin-win-cpu-${{ matrix.arch }}.zip
+          name: llama-bin-win-cpu-${{ matrix.arch }}.zip
+
+  windows-hip:
     runs-on: windows-2022
     
     env:
@@ -108,15 +173,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
-            -DGGML_CPU=ON `
-            -DGGML_RPC=OFF `
-            -DGGML_CPU_ALL_VARIANTS=ON `
+            -DGGML_CPU=OFF `
             -DGPU_TARGETS="${{ matrix.gpu_targets }}" `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DGGML_HIP=ON `
-            -DBUILD_SHARED_LIBS=ON `
             -DLLAMA_BUILD_BORINGSSL=ON
-          cmake --build build -j ${env:NUMBER_OF_PROCESSORS}
+          cmake --build build --target ggml-hip -j ${env:NUMBER_OF_PROCESSORS}
           #md "build\bin\rocblas\library\"
           #md "build\bin\hipblaslt\library"
           cp "${env:HIP_PATH}\bin\libhipblas.dll" "build\bin\"
@@ -135,3 +197,64 @@ jobs:
         with:
           path: llama-bin-win-hip-${{ matrix.name }}-x64.zip
           name: llama-bin-win-hip-${{ matrix.name }}-x64.zip
+
+release:
+    if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
+
+    # Fine-grant permission
+    # https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-github_token
+    permissions:
+        contents: write # for creating release
+
+    runs-on: ubuntu-slim
+
+    needs:
+      - windows-cpu
+      - windows-hip
+
+      - name: Download artifacts
+        id: download-artifact
+        uses: actions/download-artifact@v7
+        with:
+          path: ./artifact
+          merge-multiple: true
+
+      - name: Move artifacts
+        id: move_artifacts
+        run: |
+          mkdir -p release
+
+          echo "Adding CPU backend files to existing zips..."
+          for arch in x64; do
+            cpu_zip="artifact/llama-bin-win-cpu-${arch}.zip"
+            temp_dir=$(mktemp -d)
+            echo "Extracting CPU backend for $arch..."
+            unzip "$cpu_zip" -d "$temp_dir"
+
+            echo "Adding CPU files to $arch zips..."
+            for target_zip in artifact/llama-bin-win-*-${arch}.zip; do
+              if [[ "$target_zip" == "$cpu_zip" ]]; then
+                continue
+              fi
+              echo "Adding CPU backend to $(basename "$target_zip")"
+              realpath_target_zip=$(realpath "$target_zip")
+              (cd "$temp_dir" && zip -r "$realpath_target_zip" .)
+            done
+
+            rm -rf "$temp_dir"
+          done
+
+          echo "Renaming and moving zips to release..."
+          for zip_file in artifact/llama-bin-win-*.zip; do
+            base_name=$(basename "$zip_file" .zip)
+            zip_name="llama-${base_name#llama-}.zip"
+            echo "Moving $zip_file to release/$zip_name"
+            mv "$zip_file" "release/$zip_name"
+          done
+
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          path: release
+          name: llama-bin-win-hip-radeon-x64.zip
