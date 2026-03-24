@@ -212,16 +212,6 @@ jobs:
       - windows-hip
 
     steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Determine tag name
-        id: tag
-        uses: ./.github/actions/get-tag-name
-
       - name: Download artifacts
         id: download-artifact
         uses: actions/download-artifact@v7
