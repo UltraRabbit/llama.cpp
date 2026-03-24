@@ -222,7 +222,7 @@ jobs:
       - name: Determine tag name
         id: tag
         uses: ./.github/actions/get-tag-name
-            
+
       - name: Download artifacts
         id: download-artifact
         uses: actions/download-artifact@v7
@@ -263,9 +263,8 @@ jobs:
             mv "$zip_file" "release/$zip_name"
           done
 
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
-          path: release
-          name: llama-bin-win-hip-radeon-x64.zip
+          path: release/llama-bin-win-hip-radeon-x64.zip
+          name: release/llama-bin-win-hip-radeon-x64.zip
