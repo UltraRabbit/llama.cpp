@@ -211,7 +211,8 @@ jobs:
     needs:
       - windows-cpu
       - windows-hip
-
+      
+    steps:
       - name: Download artifacts
         id: download-artifact
         uses: actions/download-artifact@v7
