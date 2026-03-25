@@ -81,6 +81,10 @@ export interface ApiModelDataEntry {
 	path: string;
 	/** Current status of the model */
 	status: ApiModelStatus;
+	/** Alternative names that resolve to this model */
+	aliases?: string[];
+	/** Informational tags for this model */
+	tags?: string[];
 	/** Legacy meta field (may be present in older responses) */
 	meta?: Record<string, unknown> | null;
 }
@@ -160,7 +164,7 @@ export interface ApiLlamaCppServerProps {
 			chat_format: string;
 			reasoning_format: string;
 			reasoning_in_content: boolean;
-			thinking_forced_open: boolean;
+			generation_prompt: string;
 			samplers: string[];
 			backend_sampling: boolean;
 			'speculative.n_max': number;
@@ -328,7 +332,7 @@ export interface ApiSlotData {
 		chat_format: string;
 		reasoning_format: string;
 		reasoning_in_content: boolean;
-		thinking_forced_open: boolean;
+		generation_prompt: string;
 		samplers: string[];
 		backend_sampling: boolean;
 		'speculative.n_max': number;
