@@ -10,6 +10,7 @@
 
 #include "build-info.h"
 #include "common.h"
+#include "server-buffer-manager.h"
 #include "fit.h"
 #include "llama.h"
 #include "log.h"
@@ -1023,6 +1024,9 @@ private:
     int64_t  t_prompt_start  = 0; // start of the oldest queued prompt decode
     uint64_t n_prompt_queued = 0;
 
+    // response buffer manager
+    ResponseBufferManager buffer_manager;
+    
     json json_ui_settings = json::object();
 
     // Necessary similarity of prompt for slot selection
@@ -1444,6 +1448,7 @@ private:
             };
 
             slot.reset();
+            buffer_manager.reset_slot(slot.id);
         }
 
         {
@@ -1779,9 +1784,13 @@ private:
 
                 ret->prompt_save(*prompt_cache);
 
+                SRV_WRN("prompt cache save took %.2f ms\n", (ggml_time_us() - t_start) / 1000.0);
+                
                 if (!ret->prompt_load(*prompt_cache, task.tokens)) {
                     ret->prompt_clear();
                 }
+
+                SRV_WRN("prompt cache load took %.2f ms\n", (ggml_time_us() - t_start) / 1000.0);
 
                 prompt_cache->update();
 
@@ -2007,7 +2016,11 @@ private:
 
             slot.add_token(result);
             if (slot.task->params.stream) {
-                send_partial_response(slot, result, false);
+                buffer_manager.set_enabled(slot.id, true);
+                buffer_manager.submit_result(slot.id, result,
+                    [this, &slot](const completion_token_output& tkn) {
+                        send_partial_response(slot, tkn, false);
+                    });
             }
         }
 
@@ -2220,6 +2233,13 @@ private:
     }
 
     void send_final_response(server_slot & slot) {
+        if (slot.task->params.stream) {
+            buffer_manager.flush_slot(slot.id,
+                [this, &slot](const completion_token_output& tkn) {
+                    send_partial_response(slot, tkn, false);
+                });
+        }
+
         auto res = std::make_unique<server_task_result_cmpl_final>();
 
         res->id      = slot.task->id;
@@ -2482,6 +2502,7 @@ private:
                         slot.task->id_parent == id_parent
                 )) {
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
                 }
             }
         };
@@ -2662,6 +2683,7 @@ private:
                     for (auto & slot : slots) {
                         if (slot.task && slot.task->id == task.id_target) {
                             slot.release();
+                            buffer_manager.reset_slot(slot.id);
                             break;
                         }
                     }
@@ -3119,6 +3141,7 @@ private:
                     // we should never get here, because generation should already stopped in process_token()
                     send_error(slot, "context shift is disabled", ERROR_TYPE_SERVER);
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
                     return;
                 }
 
@@ -3131,6 +3154,7 @@ private:
                 if (slot.task->is_parent() || slot.task->is_child()) {
                     send_error(slot, "context shift cannot be used for shared prompt", ERROR_TYPE_SERVER);
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
                     return;
                 }
 
@@ -3381,6 +3405,7 @@ private:
                             slot.print_timings();
                             send_final_response(slot);
                             slot.release();
+                            buffer_manager.reset_slot(slot.id);
 
                             return;
                         }
@@ -3389,6 +3414,7 @@ private:
                         if (slot.task->need_logits() && !llama_get_memory(ctx_tgt)) {
                             send_error(slot, "the current context does not support logits computation. skipping", ERROR_TYPE_SERVER);
                             slot.release();
+                            buffer_manager.reset_slot(slot.id);
                             return;
                         }
 
@@ -3401,6 +3427,7 @@ private:
                                                slot.task->n_tokens(), n_ubatch),
                                            ERROR_TYPE_SERVER);
                                 slot.release();
+                                buffer_manager.reset_slot(slot.id);
                                 return;
                             }
 
@@ -3412,6 +3439,7 @@ private:
                                         slot.task->n_tokens(), slot.n_ctx),
                                     ERROR_TYPE_EXCEED_CONTEXT_SIZE);
                                 slot.release();
+                                buffer_manager.reset_slot(slot.id);
                                 return;
                             }
                         } else {
@@ -3422,6 +3450,7 @@ private:
                                                          slot.task->n_tokens(), slot.n_ctx),
                                            ERROR_TYPE_EXCEED_CONTEXT_SIZE);
                                 slot.release();
+                                buffer_manager.reset_slot(slot.id);
                                 return;
                             }
 
@@ -3755,6 +3784,7 @@ private:
                             SLT_ERR(slot, "failed to process mtmd chunk, res = %d\n", res);
                             send_error(slot, "failed to process mtmd chunk", ERROR_TYPE_SERVER);
                             slot.release();
+                            buffer_manager.reset_slot(slot.id);
                             return; // the slot is done, skip it entirely
                         }
 
@@ -4041,6 +4071,7 @@ private:
                         if (slot.is_processing()) {
                             send_error(slot, err);
                             slot.release();
+                            buffer_manager.reset_slot(slot.id);
 
                             // note: it's complicated to keep track of how much of the current batch has been
                             //       processed before the error occurred, so we simply clear the entire context
@@ -4150,6 +4181,7 @@ private:
                     // prompt evaluated for embedding
                     send_embedding(slot, batch.view);
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
                     slot.i_batch = -1;
                     return;
                 }
@@ -4157,6 +4189,7 @@ private:
                 if (slot.task->type == SERVER_TASK_TYPE_RERANK) {
                     send_rerank(slot, batch.view);
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
                     slot.i_batch = -1;
                     return;
                 }
@@ -4224,6 +4257,7 @@ private:
                 slot.print_timings();
                 send_final_response(slot);
                 slot.release();
+                buffer_manager.reset_slot(slot.id);
 
                 return;
             }
@@ -4362,6 +4396,7 @@ private:
                     slot.print_timings();
                     send_final_response(slot);
                     slot.release();
+                    buffer_manager.reset_slot(slot.id);
 
                     return;
                 }
