@@ -21,6 +21,8 @@ add_library(${TARGET} STATIC
     server-tools.h
     server-schema.cpp
     server-schema.h
+    server-buffer-manager.cpp
+    server-buffer-manager.h
 )
 
 if (BUILD_SHARED_LIBS)
