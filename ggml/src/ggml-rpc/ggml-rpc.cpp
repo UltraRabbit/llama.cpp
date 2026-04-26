@@ -24,6 +24,14 @@
 #include <algorithm>
 #include <atomic>
 
+#ifdef GGML_RPC_RDMA
+#  include <infiniband/verbs.h>
+#  include <time.h>
+#  ifndef _WIN32
+#    include <poll.h>
+#  endif
+#endif // GGML_RPC_RDMA
+
 static const char * RPC_DEBUG = std::getenv("GGML_RPC_DEBUG");
 
 #define LOG_DBG(...) \
