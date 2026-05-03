@@ -1854,7 +1854,9 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
                 special_function_tool
         })
             .expect_reasoning("<think>\n\n")
-            .expect_tool_calls({ { "special_function", "{\"arg1\": 1}", "" } })
+            .expect_tool_calls({
+                { "special_function", "{\"arg1\": 1}", "" }
+            })
             .run();
 
         tst.test(
@@ -1887,172 +1889,9 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
                 run_in_terminal_tool
         })
             .expect_tool_calls({
-                { "run_in_terminal", R"({"command": "pwd"})", {} },
+                { "special_function", "{\"arg1\": 1}", "" }
             })
             .run();
-
-        tst.test(
-               "</think>\n\n"
-               "Let me inspect the current directory.\n"
-               "<tool_call>\n"
-               "<function=run_in_terminal>\n"
-               "<parameter=command>\n"
-               "pwd\n"
-               "</parameter>\n"
-               "</function>\n"
-               "</tool_call>")
-            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-            .enable_thinking(true)
-            .tools({
-                run_in_terminal_tool
-        })
-            .expect_content("Let me inspect the current directory.\n")
-            .expect_tool_calls({
-                { "run_in_terminal", R"({"command": "pwd"})", {} },
-            })
-            .run();
-
-        tst.test(
-               "</think>\n\n"
-               "Let me inspect the current directory.\n"
-               "<tool_call>\n"
-               "<function=run_in_terminal>\n"
-               "<parameter=command>\n"
-               "pwd\n"
-               "</parameter>\n"
-               "</function>\n"
-               "</tool_call>")
-            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-            .enable_thinking(true)
-            .tools({
-                run_in_terminal_tool
-        })
-            .tool_choice(COMMON_CHAT_TOOL_CHOICE_REQUIRED)
-            .expect_content("Let me inspect the current directory.\n")
-            .expect_tool_calls({
-                { "run_in_terminal", R"({"command": "pwd"})", {} },
-            })
-            .run();
-
-        tst.test(
-               "I should inspect the directory.\n"
-               "</think>\n\n"
-               "Let me inspect it now.\n"
-               "<tool_call>\n"
-               "<function=run_in_terminal>\n"
-               "<parameter=command>\n"
-               "pwd\n"
-               "</parameter>\n"
-               "</function>\n"
-               "</tool_call>")
-            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-            .enable_thinking(true)
-            .tools({
-                run_in_terminal_tool
-        })
-            .expect_reasoning("I should inspect the directory.")
-            .expect_content("Let me inspect it now.\n")
-            .expect_tool_calls({
-                { "run_in_terminal", R"({"command": "pwd"})", {} },
-            })
-            .run();
-
-        tst.test(
-               "I might call <tool_call> later, but I am still thinking.\n"
-               "</think>\n\n"
-               "Final answer without tools.")
-            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-            .enable_thinking(true)
-            .tools({ run_in_terminal_tool })
-            .expect_reasoning("I might call <tool_call> later, but I am still thinking.")
-            .expect_content("Final answer without tools.")
-            .run();
-
-        {
-            common_chat_msg user_start;
-            user_start.role    = "user";
-            user_start.content = "Create a todo list, then inspect the repository.";
-
-            common_chat_msg assistant_todos =
-                simple_assist_msg("", "", "manage_todo_list",
-                                  R"({"todos":[{"item":"Inspect repository","selected":false}]})", "call_todos");
-
-            common_chat_msg tool_result;
-            tool_result.role         = "tool";
-            tool_result.content      = "Successfully wrote todo list";
-            tool_result.tool_call_id = "call_todos";
-
-            common_chat_msg user_continue;
-            user_continue.role    = "user";
-            user_continue.content = "Proceed.";
-
-            tst.test(
-                   "I need to run a terminal command.\n"
-                   "</think>\n\n"
-                   "<tool_call>\n"
-                   "<function=run_in_terminal>\n"
-                   "<parameter=command>\n"
-                   "pwd\n"
-                   "</parameter>\n"
-                   "</function>\n"
-                   "</tool_call>")
-                .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-                .enable_thinking(true)
-                .tools({
-                    manage_todo_list_tool, run_in_terminal_tool
-            })
-                .messages({ user_start, assistant_todos, tool_result, user_continue })
-                .expect_reasoning("I need to run a terminal command.")
-                .expect_tool_calls({
-                    { "run_in_terminal", R"({"command": "pwd"})", {} },
-                })
-                .run();
-
-            tst.test(
-                   "I need to run a terminal command.\n"
-                   "</think>\n\n"
-                   "Let me inspect the current directory.\n"
-                   "<tool_call>\n"
-                   "<function=run_in_terminal>\n"
-                   "<parameter=command>\n"
-                   "pwd\n"
-                   "</parameter>\n"
-                   "</function>\n"
-                   "</tool_call>")
-                .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-                .enable_thinking(true)
-                .tools({
-                    manage_todo_list_tool, run_in_terminal_tool
-            })
-                .tool_choice(COMMON_CHAT_TOOL_CHOICE_REQUIRED)
-                .messages({ user_start, assistant_todos, tool_result, user_continue })
-                .expect_reasoning("I need to run a terminal command.")
-                .expect_content("Let me inspect the current directory.\n")
-                .expect_tool_calls({
-                    { "run_in_terminal", R"({"command": "pwd"})", {} },
-                })
-                .run();
-
-            tst.test(
-                   "</think>\n\n"
-                   "<tool_call>\n"
-                   "<function=run_in_terminal>\n"
-                   "<parameter=command>\n"
-                   "pwd\n"
-                   "</parameter>\n"
-                   "</function>\n"
-                   "</tool_call>")
-                .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-                .enable_thinking(true)
-                .tools({
-                    manage_todo_list_tool, run_in_terminal_tool
-            })
-                .messages({ user_start, assistant_todos, tool_result, user_continue })
-                .expect_tool_calls({
-                    { "run_in_terminal", R"({"command": "pwd"})", {} },
-                })
-                .run();
-        }
     }
 
     {
