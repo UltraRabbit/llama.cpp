@@ -122,6 +122,11 @@ if (CUDAToolkit_FOUND)
             template-instances/fattn-vec-instance-q4_0-q4_0.cu
             template-instances/fattn-vec-instance-q8_0-q8_0.cu
             template-instances/fattn-vec-instance-bf16-bf16.cu)
+        if (GGML_CUDA_FA_Q8_0_Q4_0)
+            list(APPEND GGML_SOURCES_CUDA
+                template-instances/fattn-vec-instance-q8_0-q4_0.cu)
+            add_compile_definitions(GGML_CUDA_FA_Q8_0_Q4_0)
+        endif()
     endif()
 
     ggml_add_backend_library(ggml-cuda
