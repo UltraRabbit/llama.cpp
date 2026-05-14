@@ -70,7 +70,7 @@ jobs:
           path: llama-bin-win-cpu-${{ matrix.arch }}.zip
           name: llama-bin-win-cpu-${{ matrix.arch }}.zip
 
-  windows:
+  windows-vulkan:
     runs-on: windows-2025
 
     env:
@@ -188,7 +188,7 @@ jobs:
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
-            -DGGML_CUDA_FA_ALL_QUANTS=ON ^
+            -DGGML_CUDA_FA_Q8_0_Q4_0=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
             -DGGML_CUDA_CUB_3DOT2=ON
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
@@ -341,7 +341,7 @@ jobs:
     runs-on: ubuntu-slim
 
     needs:
-      - windows
+      - windows-vulkan
       - windows-cuda
       - windows-cpu
       # - windows-hip
