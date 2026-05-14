@@ -148,6 +148,77 @@ jobs:
           path: llama-bin-win-${{ matrix.backend }}-${{ matrix.arch }}.zip
           name: llama-bin-win-${{ matrix.backend }}-${{ matrix.arch }}.zip
 
+  windows-cuda:
+    runs-on: windows-2022
+
+    strategy:
+      matrix:
+        cuda: ['13.1']
+
+    steps:
+      - name: Clone
+        id: checkout
+        uses: actions/checkout@v6
+
+      - name: Install ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-cuda-${{ matrix.cuda }}
+          variant: ccache
+          evict-old-files: 1d
+
+      - name: Install Cuda Toolkit
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ matrix.cuda }}
+
+      - name: Install Ninja
+        id: install_ninja
+        run: |
+          choco install ninja
+
+      - name: Build
+        id: cmake_build
+        shell: cmd
+        # TODO: Remove GGML_CUDA_CUB_3DOT2 flag once CCCL 3.2 is bundled within CTK and that CTK version is used in this project
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_CPU=OFF ^
+            -DGGML_CUDA=ON ^
+            -DGGML_CUDA_FA_ALL_QUANTS=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DGGML_CUDA_CUB_3DOT2=ON
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build --config Release -j %NINJA_JOBS% --target ggml-cuda
+
+      - name: Pack artifacts
+        id: pack_artifacts
+        run: |
+          7z a -snl llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip .\build\bin\Release\ggml-cuda.dll
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          path: llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
+          name: llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
+
+      # - name: Copy and pack Cuda runtime
+      #   run: |
+      #     echo "Cuda install location: ${{ env.CUDA_PATH }}"
+      #     $dst='.\build\bin\cudart\'
+      #     robocopy "${{env.CUDA_PATH}}\bin" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
+      #     robocopy "${{env.CUDA_PATH}}\lib" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
+      #     robocopy "${{env.CUDA_PATH}}\bin\x64" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
+      #     7z a cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip $dst\*
+
+      # - name: Upload Cuda runtime
+      #   uses: actions/upload-artifact@v6
+      #   with:
+      #     path: cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
+      #     name: cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
 
   windows-hip:
     if: false
@@ -271,6 +342,7 @@ jobs:
 
     needs:
       - windows
+      - windows-cuda
       - windows-cpu
       # - windows-hip
     steps:
@@ -314,11 +386,18 @@ jobs:
             mv "$zip_file" "release/$zip_name"
           done
 
-      - name: Upload artifacts
+      - name: Upload vulkan artifact
         uses: actions/upload-artifact@v6
         with:
-          # path: release/llama-bin-win-hip-radeon-x64.zip
-          # name: llama-bin-win-hip-radeon-x64.zip
           path: release/llama-bin-win-vulkan-x64.zip
           name: llama-bin-win-vulkan-x64.zip
           overwrite: true
+          archive: false
+
+      - name: Upload cuda artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: release/llama-bin-win-cuda-13.1-x64.zip
+          name: llama-bin-win-cuda-13.1-x64.zip
+          overwrite: true
+          archive: false
