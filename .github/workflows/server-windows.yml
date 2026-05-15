@@ -388,7 +388,7 @@ jobs:
           done
 
       - name: Upload vulkan artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           path: release/llama-bin-win-vulkan-x64.zip
           name: llama-bin-win-vulkan-x64.zip
@@ -396,7 +396,7 @@ jobs:
           archive: false
 
       - name: Upload cuda artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           path: release/llama-bin-win-cuda-13.1-x64.zip
           name: llama-bin-win-cuda-13.1-x64.zip
