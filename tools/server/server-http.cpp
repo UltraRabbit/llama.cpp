@@ -271,6 +271,10 @@ bool server_http_context::init(const common_params & params) {
 
     // register server middlewares
     srv->set_pre_routing_handler([middleware_validate_api_key, middleware_server_state](const httplib::Request & req, httplib::Response & res) {
+        // log client IP for non-health requests
+        if (req.path != "/health" && req.path != "/v1/health" && req.path != "/models" && req.path != "/v1/models" && req.path != "/props" && req.path != "/metrics") {
+            SRV_INF("request from %s: %s %s\n", req.remote_addr.c_str(), req.method.c_str(), req.path.c_str());
+        }
         res.set_header("Access-Control-Allow-Origin", req.get_header_value("Origin"));
         // If this is OPTIONS request, skip validation because browsers don't include Authorization header
         if (req.method == "OPTIONS") {
