@@ -173,7 +173,7 @@ jobs:
           name: llama-bin-win-${{ matrix.backend }}-${{ matrix.arch }}.zip
 
   windows-cuda:
-    runs-on: windows-2025-vs2026
+    runs-on: windows-2022
 
     permissions:
       actions: write
