@@ -67,10 +67,10 @@ jobs:
             ${{ env.CMAKE_ARGS }}
           cmake --build build --config Release
 
-      - name: ccache-clear
-        uses: ./.github/actions/ccache-clear
-        with:
-          key: windows-cpu-${{ matrix.arch }}-cpu
+      # - name: ccache-clear
+      #   uses: ./.github/actions/ccache-clear
+      #   with:
+      #     key: windows-cpu-${{ matrix.arch }}-cpu
 
       - name: Pack artifacts
         id: pack_artifacts
