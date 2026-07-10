@@ -173,6 +173,8 @@ jobs:
           name: llama-bin-win-${{ matrix.backend }}-${{ matrix.arch }}.zip
 
   windows-cuda:
+    if: false # Disable CUDA build for now
+    
     runs-on: windows-2022
 
     permissions:
@@ -381,7 +383,7 @@ jobs:
 
     needs:
       - windows-vulkan
-      - windows-cuda
+      #- windows-cuda
       - windows-cpu
       # - windows-hip
     steps:
@@ -434,6 +436,7 @@ jobs:
           archive: false
 
       - name: Upload cuda artifact
+        if: false # Disable CUDA artifact upload for now
         uses: actions/upload-artifact@v7
         with:
           path: release/llama-bin-win-cuda-13.3-x64.zip
