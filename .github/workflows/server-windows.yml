@@ -419,7 +419,7 @@ jobs:
           archive: false
 
       - name: Upload cuda artifact
-        if: false # Disable CUDA artifact upload for now
+        #if: false # Disable CUDA artifact upload for now
         uses: actions/upload-artifact@v7
         with:
           path: release/llama-bin-win-cuda-13.3-x64.zip
