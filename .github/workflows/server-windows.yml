@@ -220,10 +220,7 @@ jobs:
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
-            -DGGML_CUDA_FA_Q8_0_Q4_0=ON ^
-            -DGGML_CUDA_FA_F16_Q4_0=ON ^
-            -DGGML_CUDA_FA_BF16_Q4_0=ON ^
-            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DGGML_CUDA_FA_QUANTS="q8_0-q4_0;f16-q4_0;bf16-q4_0" ^
             -DLLAMA_BUILD_BORINGSSL=ON ${{ matrix.defines }}
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% --target ggml-cuda
