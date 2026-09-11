@@ -173,7 +173,7 @@ jobs:
           name: llama-bin-win-${{ matrix.backend }}-${{ matrix.arch }}.zip
 
   windows-cuda:
-    if: false # Disable CUDA build for now
+    #if: false # Disable CUDA build for now
     
     runs-on: windows-2022
 
@@ -182,41 +182,38 @@ jobs:
 
     strategy:
       matrix:
-        cuda: ['13.3']
+        include:
+          - cuda: '13.3'
+            arch: x64
+            defines: ''
 
     steps:
       - name: Clone
         id: checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.24
         with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: "tools/ui/package-lock.json"
+          key: release-windows-2022-${{ matrix.arch }}-cuda-${{ matrix.cuda }}
 
       - name: Install Cuda Toolkit
         uses: ./.github/actions/windows-setup-cuda
         with:
           cuda_version: ${{ matrix.cuda }}
+          cuda_arch: ${{ matrix.arch }}
 
       - name: Install Ninja
         id: install_ninja
         run: |
           choco install ninja
 
-      - name: Install ccache
-        uses: ggml-org/ccache-action@v1.2.21
-        with:
-          key: windows-cuda-${{ matrix.cuda }}
-
       - name: Build
         id: cmake_build
         shell: cmd
         # TODO: Remove GGML_CUDA_CUB_3DOT2 flag once CCCL 3.2 is bundled within CTK and that CTK version is used in this project
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch == 'x64' && 'x64' || 'amd64_arm64' }}
           cmake -S . -B build -G "Ninja Multi-Config" ^
             -DGGML_BACKEND_DL=ON ^
             -DBUILD_SHARED_LIBS=ON ^
@@ -224,42 +221,28 @@ jobs:
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
             -DGGML_CUDA_FA_Q8_0_Q4_0=ON ^
+            -DGGML_CUDA_FA_F16_Q4_0=ON ^
+            -DGGML_CUDA_FA_BF16_Q4_0=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
-            -DGGML_CUDA_CUB_3DOT2=ON ^
-            -DCMAKE_CUDA_ARCHITECTURES="120"
+            -DLLAMA_BUILD_BORINGSSL=ON ${{ matrix.defines }}
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% --target ggml-cuda
 
-      # - name: ccache-clear
-      #   uses: ./.github/actions/ccache-clear
-      #   with:
-      #     key: windows-cuda-${{ matrix.cuda }}
+      - name: ccache-clear
+        uses: ./.github/actions/ccache-clear
+        with:
+          key: release-windows-2022-${{ matrix.arch }}-cuda-${{ matrix.cuda }}
 
       - name: Pack artifacts
         id: pack_artifacts
         run: |
-          7z a -snl llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip .\build\bin\Release\ggml-cuda.dll
+          7z a -snl llama-bin-win-cuda-${{ matrix.cuda }}-${{ matrix.arch }}.zip .\build\bin\Release\ggml-cuda.dll
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
-          path: llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
-          name: llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
-
-      # - name: Copy and pack Cuda runtime
-      #   run: |
-      #     echo "Cuda install location: ${{ env.CUDA_PATH }}"
-      #     $dst='.\build\bin\cudart\'
-      #     robocopy "${{env.CUDA_PATH}}\bin" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-      #     robocopy "${{env.CUDA_PATH}}\lib" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-      #     robocopy "${{env.CUDA_PATH}}\bin\x64" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-      #     7z a cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip $dst\*
-
-      # - name: Upload Cuda runtime
-      #   uses: actions/upload-artifact@v6
-      #   with:
-      #     path: cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
-      #     name: cudart-llama-bin-win-cuda-${{ matrix.cuda }}-x64.zip
+          path: llama-bin-win-cuda-${{ matrix.cuda }}-${{ matrix.arch }}.zip
+          name: llama-bin-win-cuda-${{ matrix.cuda }}-${{ matrix.arch }}.zip
 
   windows-hip:
     if: false
@@ -383,7 +366,7 @@ jobs:
 
     needs:
       - windows-vulkan
-      #- windows-cuda
+      - windows-cuda
       - windows-cpu
       # - windows-hip
     steps:
