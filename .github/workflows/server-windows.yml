@@ -183,7 +183,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - cuda: '13.3'
+          - cuda: '13.4'
             arch: x64
             defines: ''
 
