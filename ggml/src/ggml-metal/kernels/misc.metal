@@ -376,9 +376,13 @@ template [[host_name("kernel_snake_bf16")]] kernel void kernel_snake<bfloat>(con
 
 template<int N, typename src_t>
 kernel void kernel_fwht(
+template<int N, typename src_t>
+kernel void kernel_fwht(
         constant ggml_metal_kargs_fwht & args,
         device const src_t * src,
+        device const src_t * src,
         device float * dst,
+        device const float * signs,
         uint3  tgpig[[threadgroup_position_in_grid]],
         ushort sgitg[[simdgroup_index_in_threadgroup]],
         ushort tiisg[[thread_index_in_simdgroup]],
@@ -394,6 +398,10 @@ kernel void kernel_fwht(
     if (r >= args.nrows) {
         return;
     }
+
+    // the Hadamard sign flip that precedes the transform in the graph is applied
+    // on load when fused in: exact, since the factors are +-1
+    signs += (args.n_blk > 0 ? (r % args.n_blk) * N : 0);
 
     src += r * N;
     dst += r * N;
