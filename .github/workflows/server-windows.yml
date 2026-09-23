@@ -221,6 +221,7 @@ jobs:
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
+            -DGGML_CUDA_FA_ALL_QUANTS=ON ^
             -DGGML_CUDA_FA_QUANTS="q5_0-q4_0;q8_0-q4_0;f16-q4_0;bf16-q4_0;q8_0-q8_0;f16-f16" ^
             -DLLAMA_BUILD_BORINGSSL=ON ${{ matrix.defines }}
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
