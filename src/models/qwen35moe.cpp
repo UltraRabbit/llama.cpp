@@ -144,19 +144,6 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader & ml) {
     for (int i = n_layer; i < n_layer_all; ++i) {
         load_block_mtp(i);
     }
-
-    if (mtp_only) {
-        const auto & mtp = layers[hparams.n_layer()];
-        if (!tok_embd && !mtp.nextn.embed_tokens) {
-            throw std::runtime_error("qwen35moe: draft-only file has no token embedding (token_embd or nextn.embed_tokens)");
-        }
-        if (!output_norm && !mtp.nextn.shared_head_norm) {
-            throw std::runtime_error("qwen35moe: draft-only file has no head norm (output_norm or nextn.shared_head_norm)");
-        }
-        if (!output && !mtp.nextn.shared_head_head) {
-            throw std::runtime_error("qwen35moe: draft-only file has no LM head (output or nextn.shared_head_head)");
-        }
-    }
 }
 
 std::unique_ptr<llm_graph_context> llama_model_qwen35moe::build_arch_graph(const llm_graph_params & params) const {
@@ -572,6 +559,10 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm
     const int il = hparams.n_layer();
     const auto & layer = model.layers[il];
 
+    // draft-head-only files carry no embedding / head norm / LM head;
+    // read them from the target model through ctx_other
+    const llama_model * model_other = cparams.ctx_other ? llama_get_model(cparams.ctx_other) : nullptr;
+
     GGML_ASSERT(layer.nextn.eh_proj    && "MTP block missing nextn.eh_proj");
     GGML_ASSERT(layer.nextn.enorm      && "MTP block missing nextn.enorm");
     GGML_ASSERT(layer.nextn.hnorm      && "MTP block missing nextn.hnorm");
@@ -594,6 +585,10 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm
     ggml_tensor * tok_embd;
     if (ubatch.token) {
         ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
+        if (tok_embd_w == nullptr) {
+            GGML_ASSERT(model_other && model_other->tok_embd && "QWEN35MOE MTP: missing token embedding (nextn.embed_tokens, model.tok_embd or target model)");
+            tok_embd_w = model_other->tok_embd;
+        }
 
         tok_embd = ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
     } else {
@@ -734,7 +729,10 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm
     ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
             ? layer.nextn.shared_head_norm
             : model.output_norm;
-    GGML_ASSERT(head_norm_w && "QWEN35MOE MTP: missing both nextn.shared_head_norm and output_norm");
+    if (head_norm_w == nullptr) {
+        GGML_ASSERT(model_other && model_other->output_norm && "QWEN35MOE MTP: missing head norm (nextn.shared_head_norm, output_norm or target model)");
+        head_norm_w = model_other->output_norm;
+    }
     cur = build_norm(cur, head_norm_w, nullptr, LLM_NORM_RMS, -1);
 
     cb(cur, "h_nextn", -1);
@@ -745,7 +743,11 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm
 
     ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
     ggml_tensor * head_s = layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : model.output_s;
-    GGML_ASSERT(head_w && "QWEN35MOE MTP: missing LM head (nextn.shared_head_head or model.output)");
+    if (head_w == nullptr) {
+        GGML_ASSERT(model_other && model_other->output && "QWEN35MOE MTP: missing LM head (nextn.shared_head_head, model.output or target model)");
+        head_w = model_other->output;
+        head_s = model_other->output_s;
+    }
     cur = build_lora_mm(head_w, cur, head_s);
     cb(cur, "result_output", -1);
 
