@@ -40,14 +40,14 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader & ml) {
     const int trunk_flags = mtp_only ? TENSOR_NOT_REQUIRED : 0;
     int mtp_flags = !ml.load_mtp ? TENSOR_SKIP : 0;
 
-    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
+    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, trunk_flags);
 
     // output
-    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), { n_embd }, 0);
+    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), { n_embd }, trunk_flags);
     output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), { n_embd, n_vocab }, TENSOR_NOT_REQUIRED);
 
     // if output is NULL, init from the input tok embed
-    if (output == NULL) {
+    if (output == NULL && !mtp_only) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, TENSOR_DUPLICATED);
     }
 
@@ -143,6 +143,19 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader & ml) {
     }
     for (int i = n_layer; i < n_layer_all; ++i) {
         load_block_mtp(i);
+    }
+
+    if (mtp_only) {
+        const auto & mtp = layers[hparams.n_layer()];
+        if (!tok_embd && !mtp.nextn.embed_tokens) {
+            throw std::runtime_error("qwen35moe: draft-only file has no token embedding (token_embd or nextn.embed_tokens)");
+        }
+        if (!output_norm && !mtp.nextn.shared_head_norm) {
+            throw std::runtime_error("qwen35moe: draft-only file has no head norm (output_norm or nextn.shared_head_norm)");
+        }
+        if (!output && !mtp.nextn.shared_head_head) {
+            throw std::runtime_error("qwen35moe: draft-only file has no LM head (output or nextn.shared_head_head)");
+        }
     }
 }
 
