@@ -842,6 +842,12 @@ ggml_backend_sched_t llama_context::get_sched() const {
     return sched.get();
 }
 
+void llama_context::log_moe_cache_stats() const {
+    if (moe_cache) {
+        moe_cache->log_turn_stats();
+    }
+}
+
 uint32_t llama_context::n_ctx() const {
     return cparams.n_ctx;
 }

@@ -2,10 +2,18 @@
 
 #include "ggml-backend.h"
 
+#include <cstddef>
 #include <map>
 #include <memory>
 
 struct llama_model;
+
+// cumulative MoE cache counters
+struct llama_moe_cache_stats {
+    size_t hits   = 0;
+    size_t misses = 0;
+    size_t bytes  = 0;
+};
 
 // keeps the most recently used experts of host-resident MoE layers in a device buffer
 // MUL_MAT_ID ops on these experts run on the device and only the cache misses are uploaded
@@ -17,6 +25,10 @@ public:
     ggml_backend_t backend() const;
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
+
+    // log the counters accumulated since the previous call
+    // bucket 0 is ubatch up to 8 tokens, bucket 1 is the rest
+    void log_turn_stats() const;
 
     // ggml_backend_sched callbacks, user_data is the llama_moe_cache
     static bool sched_resolve(void * user_data, const ggml_tensor * node, ggml_backend_t backend, ggml_tensor ** cached_weight, void ** cache_entry);

@@ -7,6 +7,7 @@
 #include "llama-adapter.h"
 #include "llama-impl.h"
 #include "llama-memory.h"
+#include "llama-moe-cache.h"
 
 #include "ggml-cpp.h"
 #include "ggml-opt.h"
@@ -63,6 +64,9 @@ struct llama_context {
     const llama_cparams & get_cparams() const;
 
     ggml_backend_sched_t get_sched() const;
+
+    // log the MoE cache counters accumulated since the previous call
+    void log_moe_cache_stats() const;
 
     uint32_t n_ctx()     const;
     uint32_t n_ctx_seq() const;

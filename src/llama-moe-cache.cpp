@@ -195,6 +195,8 @@ struct llama_moe_cache::impl {
     uint64_t epoch = 0;
     stats stats_small; // up to 8 tokens per ubatch
     stats stats_large;
+    // totals at the previous log_turn_stats() call, to report per-turn counters
+    mutable llama_moe_cache_stats stats_logged[2];
 
     std::vector<group> groups;
     std::vector<moe_cache_lru::fill> fills;
@@ -415,18 +417,44 @@ struct llama_moe_cache::impl {
     }
 
     void log_stats() const {
-        auto log = [](const char * name, const stats & st) {
-            const size_t n = st.hits + st.misses;
+        const llama_moe_cache_stats st[2] = {
+            { stats_small.hits, stats_small.misses, stats_small.bytes },
+            { stats_large.hits, stats_large.misses, stats_large.bytes },
+        };
+        log_stats("", st);
+    }
+
+    void log_stats(const char * name, const llama_moe_cache_stats (& st)[2]) const {
+        auto log = [&](const char * st_name, const llama_moe_cache_stats & s) {
+            const size_t n = s.hits + s.misses;
             if (n == 0) {
                 return;
             }
-            LLAMA_LOG_INFO("llama_moe_cache: %s: hits = %zu, misses = %zu, hit rate = %.2f%%, uploaded = %.2f MiB\n",
-                name, st.hits, st.misses, 100.0*st.hits/n, st.bytes/1024.0/1024.0);
+            LLAMA_LOG_INFO("llama_moe_cache: %s%s: hits = %zu, misses = %zu, hit rate = %.2f%%, uploaded = %.2f MiB\n",
+                name, st_name, s.hits, s.misses, 100.0*s.hits/n, s.bytes/1024.0/1024.0);
         };
-        log("ubatch <= 8", stats_small);
-        log("ubatch  > 8", stats_large);
+        log("ubatch <= 8", st[0]);
+        log("ubatch  > 8", st[1]);
     }
 };
+
+void llama_moe_cache::log_turn_stats() const {
+    // the counters are cumulative, so report the difference from the previous call
+    const impl::stats * cur[2] = { &pimpl->stats_small, &pimpl->stats_large };
+
+    llama_moe_cache_stats turn[2];
+    for (size_t i = 0; i < 2; ++i) {
+        const llama_moe_cache_stats now = { cur[i]->hits, cur[i]->misses, cur[i]->bytes };
+        turn[i] = {
+            now.hits   - pimpl->stats_logged[i].hits,
+            now.misses - pimpl->stats_logged[i].misses,
+            now.bytes  - pimpl->stats_logged[i].bytes,
+        };
+        pimpl->stats_logged[i] = now;
+    }
+
+    pimpl->log_stats("turn ", turn);
+}
 
 llama_moe_cache::llama_moe_cache(const llama_model & model, ggml_backend_t backend, ggml_backend_buffer_type_t buft, size_t size) :
     pimpl(new impl(model, backend, buft, size)) {
