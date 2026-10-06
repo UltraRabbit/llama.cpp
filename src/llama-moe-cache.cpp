@@ -207,6 +207,10 @@ struct llama_moe_cache::impl {
     ggml_backend_buffer_ptr buf;
     size_t buf_size = 0;
 
+    ggml_backend_buffer_type_t staging_buft = nullptr;
+    ggml_backend_buffer_ptr staging;
+    size_t staging_size = 0;
+
     impl(const llama_model & model, ggml_backend_t backend, ggml_backend_buffer_type_t buft, size_t size) :
             backend(backend), no_alloc(model.hparams.no_alloc), n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()) {
         ggml_backend_dev_t dev = ggml_backend_get_device(backend);
@@ -217,6 +221,8 @@ struct llama_moe_cache::impl {
         if (model.split_mode() == LLAMA_SPLIT_MODE_TENSOR) {
             throw std::runtime_error("MoE cache does not support tensor parallelism");
         }
+        // expert uploads go through pinned host memory, see ensure_staging
+        staging_buft = ggml_backend_dev_host_buffer_type(dev);
         if (model.hparams.n_expert == 0 || n_expert_used == 0) {
             throw std::runtime_error("MoE cache requires a MoE model");
         }
@@ -329,6 +335,11 @@ struct llama_moe_cache::impl {
 
         LLAMA_LOG_INFO("%s: %10s MoE cache size = %8.2f MiB for %.2f MiB of host experts\n", __func__,
             ggml_backend_buft_name(buft), buf_size/1024.0/1024.0, host_bytes/1024.0/1024.0);
+        if (staging_buft != nullptr) {
+            LLAMA_LOG_INFO("%s: staging expert uploads in %s\n", __func__, ggml_backend_buft_name(staging_buft));
+        } else {
+            LLAMA_LOG_INFO("%s: no host buffer type, expert uploads are not staged\n", __func__);
+        }
         for (const group & g : groups) {
             LLAMA_LOG_INFO("%s: %2zu layers, %s: %5d slots (%.1f%%)\n", __func__,
                 g.layers.size(), ggml_type_name(g.ref.back()->type), g.n_slots, 100.0*g.n_slots/(g.layers.size()*n_expert));
@@ -337,6 +348,34 @@ struct llama_moe_cache::impl {
 
     ~impl() {
         log_stats();
+    }
+
+    // The expert uploads are staged in a pinned host buffer before the device copy.
+    // A pageable source makes the driver stage the copy itself, and Vulkan falls back
+    // to its staging buffer plus a full synchronize. A pinned source takes the direct
+    // path on both backends. Returns nullptr when the backend has no host buffer type,
+    // then the uploads read the pageable model memory directly.
+    void * ensure_staging(size_t size) {
+        if (staging_buft == nullptr) {
+            return nullptr;
+        }
+        if (staging_size >= size) {
+            return ggml_backend_buffer_get_base(staging.get());
+        }
+        size_t new_size = 1u << 20;
+        while (new_size < size) {
+            new_size *= 2;
+        }
+        ggml_backend_buffer_ptr new_staging(ggml_backend_buft_alloc_buffer(staging_buft, new_size));
+        if (!new_staging) {
+            LLAMA_LOG_WARN("%s: failed to allocate %.2f MiB of staging memory\n", __func__, new_size/1024.0/1024.0);
+            staging_buft = nullptr;
+            return nullptr;
+        }
+        LLAMA_LOG_INFO("%s: staging buffer size = %8.2f MiB\n", __func__, new_size/1024.0/1024.0);
+        staging      = std::move(new_staging);
+        staging_size = new_size;
+        return ggml_backend_buffer_get_base(staging.get());
     }
 
     bool resolve(const ggml_tensor * node, ggml_backend_t target, ggml_tensor ** cached_weight, void ** cache_entry) {
@@ -390,17 +429,48 @@ struct llama_moe_cache::impl {
         }
 
         size_t bytes = 0;
-        for (int32_t ib : l.bindings) {
-            const binding & b = bindings[ib];
-            const size_t expert_size = b.src->nb[2];
-            for (size_t i = 0; i < fills.size();) {
-                size_t n = 1;
-                while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
-                    n++;
+        const size_t expert_size = bindings[l.bindings.front()].src->nb[2];
+        void * staging_ptr = ensure_staging(fills.size()*expert_size);
+        if (staging_ptr != nullptr) {
+            // stage the misses in pinned memory first, then copy them to the device
+            size_t staged = 0;
+            for (int32_t ib : l.bindings) {
+                const binding & b = bindings[ib];
+                for (const moe_cache_lru::fill & f : fills) {
+                    memcpy((uint8_t *) staging_ptr + staged, (const uint8_t *) b.src->data + f.expert*b.src->nb[2], b.src->nb[2]);
+                    staged += b.src->nb[2];
                 }
-                ggml_backend_tensor_set_async(backend, b.bank, (const uint8_t *) b.src->data + fills[i].expert*expert_size, fills[i].slot*expert_size, n*expert_size);
-                bytes += n*expert_size;
-                i += n;
+            }
+            bytes = staged;
+
+            // the fills are sorted, so runs of consecutive experts in consecutive slots merge into one copy
+            staged = 0;
+            for (int32_t ib : l.bindings) {
+                const binding & b = bindings[ib];
+                for (size_t i = 0; i < fills.size();) {
+                    size_t n = 1;
+                    while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
+                        n++;
+                    }
+                    ggml_backend_tensor_set_2d_async(backend, b.bank, (const uint8_t *) staging_ptr + staged,
+                        fills[i].slot*b.src->nb[2], b.src->nb[2], n, b.src->nb[2], b.src->nb[2]);
+                    staged += n*b.src->nb[2];
+                    i += n;
+                }
+            }
+        } else {
+            for (int32_t ib : l.bindings) {
+                const binding & b = bindings[ib];
+                const size_t expert_size = b.src->nb[2];
+                for (size_t i = 0; i < fills.size();) {
+                    size_t n = 1;
+                    while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
+                        n++;
+                    }
+                    ggml_backend_tensor_set_async(backend, b.bank, (const uint8_t *) b.src->data + fills[i].expert*expert_size, fills[i].slot*expert_size, n*expert_size);
+                    bytes += n*expert_size;
+                    i += n;
+                }
             }
         }
 
