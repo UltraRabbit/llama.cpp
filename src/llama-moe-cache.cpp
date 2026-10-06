@@ -15,6 +15,9 @@ namespace {
 
 // LRU map from (layer, expert) to a cache slot
 struct moe_cache_lru {
+    // how many times a slot must be reused before it survives one eviction sweep
+    static constexpr uint32_t use_limit = 1;
+
     int32_t n_expert = 0;
     int32_t n_slots  = 0;
 
@@ -26,6 +29,9 @@ struct moe_cache_lru {
     std::vector<int32_t> next;
     int32_t head = -1;
     int32_t tail = -1;
+
+    // saturating reuse counter per slot, 0 for a freshly filled slot
+    std::vector<uint32_t> uses;
 
     std::vector<uint32_t> seen; // [n_expert]
     uint32_t seen_gen = 0;
@@ -44,11 +50,12 @@ struct moe_cache_lru {
         }
         head = 0;
         tail = n_slots - 1;
+        uses.assign(n_slots, 0);
         seen.assign(n_expert, 0);
     }
 
     // move slot s to the tail (most recently used)
-    void touch(int32_t s) {
+    void unlink(int32_t s) {
         if (s == tail) {
             return;
         }
@@ -63,6 +70,32 @@ struct moe_cache_lru {
         next[s] = -1;
         next[tail] = s;
         tail = s;
+    }
+
+    // slot s was reused, count it
+    void touch(int32_t s) {
+        uses[s] = std::min(uses[s] + 1, use_limit);
+        unlink(s);
+    }
+
+    // slot s now holds a different expert
+    void touch_new(int32_t s) {
+        uses[s] = 0;
+        unlink(s);
+    }
+
+    // pick the victim of one fill, rotating the slots that were reused more than use_limit to the tail
+    // the scan is bounded by n_slots, so the choice is always made in at most one full sweep
+    int32_t evict(void) {
+        for (int32_t i = 0; i < n_slots; ++i) {
+            const int32_t s = head;
+            if (uses[s] >= use_limit) {
+                unlink(s);
+                continue;
+            }
+            return s;
+        }
+        GGML_ABORT("%s: no eviction candidate\n", __func__);
     }
 
     struct fill {
@@ -106,13 +139,13 @@ struct moe_cache_lru {
             if (slot_of[base + e] >= 0) {
                 continue;
             }
-            const int32_t s = head;
+            const int32_t s = evict();
             if (key_of[s] >= 0) {
                 slot_of[key_of[s]] = -1;
             }
             key_of[s] = base + e;
             slot_of[base + e] = s;
-            touch(s);
+            touch_new(s);
             fills.push_back({ e, s });
         }
 
