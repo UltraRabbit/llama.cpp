@@ -65,7 +65,6 @@ struct llama_context {
 
     ggml_backend_sched_t get_sched() const;
 
-    // log the MoE cache counters accumulated since the previous call
     void log_moe_cache_stats() const;
 
     uint32_t n_ctx()     const;

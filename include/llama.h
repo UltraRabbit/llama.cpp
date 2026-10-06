@@ -1696,6 +1696,9 @@ extern "C" {
     LLAMA_API void                           llama_perf_context_print(const struct llama_context * ctx);
     LLAMA_API void                           llama_perf_context_reset(      struct llama_context * ctx);
 
+    // log the MoE cache counters accumulated since the previous call, or nothing if the cache is disabled
+    LLAMA_API void                           llama_moe_cache_print      (const struct llama_context * ctx);
+
     // NOTE: the following work only with samplers constructed via llama_sampler_chain_init
     LLAMA_API struct llama_perf_sampler_data llama_perf_sampler      (const struct llama_sampler * chain);
     LLAMA_API void                           llama_perf_sampler_print(const struct llama_sampler * chain);

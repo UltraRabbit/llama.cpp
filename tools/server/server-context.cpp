@@ -13,7 +13,6 @@
 #include "server-buffer-manager.h"
 #include "fit.h"
 #include "llama.h"
-#include "src/llama-context.h"
 #include "log.h"
 #include "sampling.h"
 #include "speculative.h"
@@ -588,7 +587,7 @@ struct server_slot {
             SLT_INF(*this, "stop processing: n_tokens = %d, truncated = %d\n", prompt.n_tokens(), truncated);
 
             if (ctx_tgt) {
-                ctx_tgt->log_moe_cache_stats();
+                llama_moe_cache_print(ctx_tgt);
             }
 
             t_last_used = ggml_time_us();
