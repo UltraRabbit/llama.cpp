@@ -15,8 +15,8 @@ namespace {
 
 // LRU map from (layer, expert) to a cache slot
 struct moe_cache_lru {
-    // how many times a slot must be reused before it survives one eviction sweep
-    static constexpr uint32_t use_limit = 1;
+    // credit ceiling of a slot, each eviction sweep spends one unit of it
+    static constexpr uint32_t use_limit = 15;
 
     int32_t n_expert = 0;
     int32_t n_slots  = 0;
@@ -30,8 +30,11 @@ struct moe_cache_lru {
     int32_t head = -1;
     int32_t tail = -1;
 
-    // saturating reuse counter per slot, 0 for a freshly filled slot
+    // reuse credit per slot, one unit per reuse, spent by the eviction sweep
     std::vector<uint32_t> uses;
+
+    // slots that hold an expert of the current plan call, they must not be evicted by it
+    std::vector<uint8_t> hot;
 
     std::vector<uint32_t> seen; // [n_expert]
     uint32_t seen_gen = 0;
@@ -51,6 +54,7 @@ struct moe_cache_lru {
         head = 0;
         tail = n_slots - 1;
         uses.assign(n_slots, 0);
+        hot.assign(n_slots, 0);
         seen.assign(n_expert, 0);
     }
 
@@ -72,7 +76,7 @@ struct moe_cache_lru {
         tail = s;
     }
 
-    // slot s was reused, count it
+    // slot s was reused, give it one more unit of credit
     void touch(int32_t s) {
         uses[s] = std::min(uses[s] + 1, use_limit);
         unlink(s);
@@ -84,18 +88,19 @@ struct moe_cache_lru {
         unlink(s);
     }
 
-    // pick the victim of one fill, rotating the slots that were reused more than use_limit to the tail
-    // the scan is bounded by n_slots, so the choice is always made in at most one full sweep
+    // pick the victim of one fill. rotate and spend one credit on every reused slot in the way,
+    // until a slot that the current call does not use is found.
     int32_t evict(void) {
-        for (int32_t i = 0; i < n_slots; ++i) {
+        for (;;) {
             const int32_t s = head;
-            if (uses[s] >= use_limit) {
-                unlink(s);
-                continue;
+            if (!hot[s] && uses[s] == 0) {
+                return s;
             }
-            return s;
+            if (!hot[s]) {
+                uses[s]--;
+            }
+            unlink(s);
         }
-        GGML_ABORT("%s: no eviction candidate\n", __func__);
     }
 
     struct fill {
@@ -127,9 +132,11 @@ struct moe_cache_lru {
         const size_t base = (size_t) il*n_expert;
 
         // hits go to the tail first, so the head can be evicted below
+        std::fill(hot.begin(), hot.end(), 0);
         for (int32_t e : uniq) {
             if (slot_of[base + e] >= 0) {
                 touch(slot_of[base + e]);
+                hot[slot_of[base + e]] = 1;
                 n_hit++;
             }
         }
@@ -145,6 +152,7 @@ struct moe_cache_lru {
             }
             key_of[s] = base + e;
             slot_of[base + e] = s;
+            hot[s] = 1;
             touch_new(s);
             fills.push_back({ e, s });
         }
