@@ -12,6 +12,7 @@ struct llama_model;
 struct llama_moe_cache_stats {
     size_t hits   = 0;
     size_t misses = 0;
+    size_t masked = 0; // experts dropped instead of uploaded
     size_t bytes  = 0;
 };
 
@@ -19,7 +20,10 @@ struct llama_moe_cache_stats {
 // MUL_MAT_ID ops on these experts run on the device and only the cache misses are uploaded
 class llama_moe_cache {
 public:
-    llama_moe_cache(const llama_model & model, ggml_backend_t backend, ggml_backend_buffer_type_t buft, size_t size);
+    // protect_top experts from the top of the gate order are never dropped
+    // min_experts is the number of experts a token computes at least, it caps how many experts can be dropped
+    llama_moe_cache(const llama_model & model, ggml_backend_t backend, ggml_backend_buffer_type_t buft, size_t size,
+        int32_t protect_top, int32_t min_experts);
     ~llama_moe_cache();
 
     ggml_backend_t backend() const;

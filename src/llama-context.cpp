@@ -274,9 +274,11 @@ llama_context::llama_context(
         }
     }
 
-    cparams.op_offload     = params.op_offload;
-    cparams.kv_unified     = params.kv_unified;
-    cparams.moe_cache_size = params.moe_cache_size;
+    cparams.op_offload            = params.op_offload;
+    cparams.kv_unified            = params.kv_unified;
+    cparams.moe_cache_size        = params.moe_cache_size;
+    cparams.moe_cache_protect_top = params.moe_cache_protect_top;
+    cparams.moe_cache_min_experts = params.moe_cache_min_experts;
 
     // initialized later
     cparams.pipeline_parallel = false;
@@ -475,7 +477,8 @@ llama_context::llama_context(
             for (size_t i = 0; i < backend_ptrs.size(); ++i) {
                 const auto type = ggml_backend_dev_type(ggml_backend_get_device(backend_ptrs[i]));
                 if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
-                    moe_cache = std::make_unique<llama_moe_cache>(model, backend_ptrs[i], backend_buft[i], cparams.moe_cache_size);
+                    moe_cache = std::make_unique<llama_moe_cache>(model, backend_ptrs[i], backend_buft[i], cparams.moe_cache_size,
+                        cparams.moe_cache_protect_top, cparams.moe_cache_min_experts);
                     break;
                 }
             }
@@ -3835,6 +3838,8 @@ llama_context_params llama_context_default_params() {
         /*.type_k                      =*/ GGML_TYPE_F16,
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
+        /*.moe_cache_protect_top       =*/ 5,
+        /*.moe_cache_min_experts       =*/ 8,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
         /*.embeddings                  =*/ false,

@@ -595,6 +595,9 @@ struct common_params {
 
     size_t moe_cache_size = 0; // GPU cache size in bytes for the MoE experts kept in the CPU
 
+    int32_t moe_cache_protect_top = 5; // MoE cache: top ranked experts per token that are never dropped
+    int32_t moe_cache_min_experts = 8; // MoE cache: experts per token that are computed at least
+
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
     // multimodal models (see tools/mtmd)
