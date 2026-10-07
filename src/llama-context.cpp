@@ -1498,7 +1498,18 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         //LLAMA_LOG_INFO("graph set inputs time: %.3f ms\n", (ggml_time_us() - t_start_us)/1000.0);
     }
 
+    // the MoE cache must know if this ubatch checks the tokens proposed by a draft
+    // the flag has to be set before the scheduler assigns the backends and picks the cache entries
+    if (moe_cache) {
+        moe_cache->set_verify(ubatch.verify);
+    }
+
     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
+
+    if (moe_cache) {
+        moe_cache->set_verify(false);
+    }
+
     if (status != GGML_STATUS_SUCCESS) {
         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
         ret = status;

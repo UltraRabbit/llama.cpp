@@ -1083,6 +1083,12 @@ extern "C" {
                                                int32_t   idx,
                                        const llama_pos * pos);
 
+    // Mark the batch as a verification batch, meaning it checks the tokens proposed by a draft model
+    // Such a batch skips the MoE cache and computes the experts on the host
+    LLAMA_API bool llama_batch_ext_set_verify(
+                                struct llama_batch_ext * batch,
+                                                  bool  verify);
+
     // TODO: implement get_embeddings() and get_logits() for llama_batch_ext
 
     // Return values are the same as llama_decode()

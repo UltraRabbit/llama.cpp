@@ -138,6 +138,9 @@ struct server_slot; // forward declaration
 struct server_batch {
     common_batch view; // the rendered sub-batch [off, off + n_tokens), see render()
 
+    // the batch holds the tokens proposed by a draft, set in pre_decode()
+    bool verify = false;
+
     struct token {
         int32_t id_slot;
         llama_token token;
@@ -194,6 +197,7 @@ struct server_batch {
         tokens.clear();
         embd.clear();
         view.clear();
+        verify            = false;
         slot_batched      = nullptr;
         alora_scale       = -1.0f;
         alora_disabled_id = 0;
@@ -231,6 +235,7 @@ struct server_batch {
         GGML_ASSERT(n_tokens > 0 && off + n_tokens <= size());
 
         view.clear();
+        view.set_verify(verify);
         for (int32_t i = off; i < off + n_tokens; i++) {
             const auto & t = tokens[i];
             if (t.i_embd >= 0) {
@@ -264,6 +269,7 @@ struct server_slot {
     std::vector<std::vector<llama_token_data>> spec_draft_q;
     llama_tokens spec_prompt;
     std::vector<int32_t> spec_i_batch;
+    bool spec_verify = false; // the slot added draft tokens to the current batch
     common_prompt_checkpoint spec_ckpt;
     bool spec_is_replay = false;
     std::mt19937 spec_synth_rng;
@@ -541,6 +547,7 @@ struct server_slot {
         bool add_ok = true;
         if (spec_draft.empty()) {
             // no speculative decoding
+            spec_verify = false;
             i_batch = batch.size();
 
             if (!inp_embd.empty()) {
@@ -560,6 +567,9 @@ struct server_slot {
                     sampled, prompt.tokens.size(), spec_draft.size(), prompt.tokens.pos_next());
 
             GGML_ASSERT(spec_i_batch.empty());
+
+            // this slot checks the draft tokens, see the batch.verify assignment in pre_decode()
+            spec_verify = true;
 
             spec_i_batch.push_back(batch.size());
             for (size_t i = 0; i < spec_draft.size(); i++) {
@@ -3237,6 +3247,9 @@ private:
                 if (n_draft_max > 0) {
                     GGML_ASSERT(slot.can_speculate());
 
+                    // the slot may add draft tokens to the batch in handle_last_sampled_token()
+                    slot.spec_verify = true;
+
                     // stale candidates: a replay never reads them, a new draft refills them
                     slot.spec_draft_q.clear();
 
@@ -3338,6 +3351,16 @@ private:
         iterate(generating, [&](server_slot & slot) {
             slot.handle_last_sampled_token(batch);
         });
+
+        // if any slot checks draft tokens, the whole batch skips the MoE cache, so that the
+        // experts used by the generation are not evicted by the draft tokens of another slot
+        {
+            bool any_verify = false;
+            for (const server_slot * slot : generating) {
+                any_verify |= slot->spec_verify;
+            }
+            batch.verify = any_verify;
+        }
 
         // process in chunks of params.n_batch
         int32_t n_batch  = llama_n_batch(ctx_tgt);

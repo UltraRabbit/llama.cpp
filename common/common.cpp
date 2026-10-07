@@ -2151,6 +2151,7 @@ common_batch::common_batch(llama_context * ctx) : batch(llama_batch_ext_init(ctx
 
 void common_batch::clear() {
     tokens.clear();
+    verify = false;
 }
 
 int32_t common_batch::add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output) {
@@ -2207,6 +2208,10 @@ llama_batch_ext * common_batch::get_sub_batch(int32_t off, int32_t n) {
 
     llama_batch_ext * res = batch.get();
     llama_batch_ext_clear(res);
+
+    if (verify) {
+        llama_batch_ext_set_verify(res, true);
+    }
 
     for (int32_t i = off; i < off + n; ++i) {
         const token & t = tokens[i];

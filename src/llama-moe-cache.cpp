@@ -233,6 +233,9 @@ struct llama_moe_cache::impl {
     bool no_alloc;
     int32_t n_expert_used;
 
+    // the current ubatch checks the tokens proposed by a draft
+    bool verify = false;
+
     uint64_t epoch = 0;
     stats stats_small; // up to 8 tokens per ubatch
     stats stats_large;
@@ -394,8 +397,8 @@ struct llama_moe_cache::impl {
 
         const int64_t n_tokens = node->src[2]->ne[1];
 
-        // speculative decoding verifies several tokens at once, compute them on the host weights instead
-        if (n_tokens > 1) {
+        // a verification batch does not reuse the experts of the generation, so compute it on the host weights instead
+        if (verify) {
             return false;
         }
 
@@ -407,6 +410,10 @@ struct llama_moe_cache::impl {
         *cached_weight = b.cached;
         *cache_entry   = &b;
         return true;
+    }
+
+    void set_verify(bool value) {
+        verify = value;
     }
 
     void begin() {
@@ -511,6 +518,10 @@ llama_moe_cache::~llama_moe_cache() = default;
 
 ggml_backend_t llama_moe_cache::backend() const {
     return pimpl->backend;
+}
+
+void llama_moe_cache::set_verify(bool verify) {
+    pimpl->set_verify(verify);
 }
 
 std::map<ggml_backend_buffer_type_t, size_t> llama_moe_cache::memory_breakdown() const {

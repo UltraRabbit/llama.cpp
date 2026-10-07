@@ -24,6 +24,10 @@ public:
 
     ggml_backend_t backend() const;
 
+    // the resolve() calls that follow belong to a batch that checks the tokens proposed by a draft
+    // such a batch does not use the cache and computes its experts on the host
+    void set_verify(bool verify);
+
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
     // log the counters accumulated since the previous call
