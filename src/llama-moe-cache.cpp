@@ -122,10 +122,11 @@ struct moe_cache_lru {
     };
 
     // returns false if the ids select more distinct experts than there are slots
-    bool plan(int32_t il, const int32_t * ids, size_t n_ids, int32_t n_used, int32_t * remapped_ids, std::vector<fill> & fills, size_t & n_hit, size_t & n_mask) {
+    bool plan(int32_t il, const int32_t * ids, size_t n_ids, int32_t n_used, int32_t * remapped_ids, std::vector<fill> & fills, size_t & n_hit, size_t & n_mask, size_t & n_below) {
         fills.clear();
-        n_hit  = 0;
-        n_mask = 0;
+        n_hit   = 0;
+        n_mask  = 0;
+        n_below = 0;
 
         if (++seen_gen == 0) {
             std::fill(seen.begin(), seen.end(), 0);
@@ -157,6 +158,7 @@ struct moe_cache_lru {
                 }
             }
             // the misses below the protected top upload their best ranks, n_limit caps how many can be dropped
+            n_below = n_miss;
             const size_t n_drop = n_miss > upload_limit ? std::min(n_miss - upload_limit, n_limit) : 0;
             for (size_t i = n_ids; i > n_top && masked.size() < n_drop; ) {
                 const int32_t e = ids[--i];
@@ -252,6 +254,7 @@ struct llama_moe_cache::impl {
     struct binding {
         int32_t il;
         int32_t ig;
+        int32_t n_used;       // experts per token in the ids tensor of this node
         ggml_tensor * src;    // host expert tensor
         ggml_tensor * bank;   // device storage of all slots
         ggml_tensor * cached; // view of the bank used in place of src
@@ -270,6 +273,9 @@ struct llama_moe_cache::impl {
         size_t misses = 0;
         size_t masked = 0;
         size_t bytes  = 0;
+        size_t plans  = 0; // plan() calls
+        size_t single = 0; // plan() calls that see one token only
+        size_t below  = 0; // misses ranked below the protected top, over the single token calls
     };
 
     static constexpr int64_t max_batch = 32;
@@ -405,7 +411,7 @@ struct llama_moe_cache::impl {
                     ggml_format_name(cached, "moe_cache.%s", experts[ip]->name);
                     binding_of[experts[ip]] = bindings.size();
                     layers[il].bindings.push_back(bindings.size());
-                    bindings.push_back({ il, (int32_t) ig, experts[ip], bank, cached });
+                    bindings.push_back({ il, (int32_t) ig, layers[il].n_used, experts[ip], bank, cached });
                 }
             }
             buf_size += alloc_size(g, g.n_slots);
@@ -452,6 +458,9 @@ struct llama_moe_cache::impl {
 
         const int64_t n_tokens = node->src[2]->ne[1];
 
+        // the graph may select fewer experts per token than the layer declares
+        b.n_used = (int32_t) node->src[2]->ne[0];
+
         // a verification batch does not reuse the experts of the generation, so compute it on the host weights instead
         if (verify) {
             return false;
@@ -495,9 +504,10 @@ struct llama_moe_cache::impl {
         l.planned_ids.assign(ids, ids + n_ids);
         l.remapped_ids.resize(n_ids);
 
-        size_t n_hit  = 0;
-        size_t n_mask = 0;
-        if (!groups[entry->ig].lru.plan(entry->il, ids, n_ids, l.n_used, l.remapped_ids.data(), fills, n_hit, n_mask)) {
+        size_t n_hit   = 0;
+        size_t n_mask  = 0;
+        size_t n_below = 0;
+        if (!groups[entry->ig].lru.plan(entry->il, ids, n_ids, entry->n_used, l.remapped_ids.data(), fills, n_hit, n_mask, n_below)) {
             return false;
         }
 
@@ -521,10 +531,26 @@ struct llama_moe_cache::impl {
         st.misses += fills.size();
         st.masked += n_mask;
         st.bytes  += bytes;
+        st.plans  += 1;
+        st.single += n_ids == (size_t) entry->n_used ? 1 : 0;
+        st.below  += n_below;
 
         l.planned_epoch = epoch;
         *remapped_ids = l.remapped_ids.data();
         return true;
+    }
+
+    // the drop policy only applies to single token calls, report how many calls see more than one
+    void log_plan_stats() const {
+        auto log = [&](const char * st_name, const stats & s) {
+            if (s.plans == 0) {
+                return;
+            }
+            LLAMA_LOG_INFO("llama_moe_cache: %s: plans = %zu, single token = %zu, missing experts below the protected top = %zu\n",
+                st_name, s.plans, s.single, s.below);
+        };
+        log("ubatch <= 8", stats_small);
+        log("ubatch  > 8", stats_large);
     }
 
     void log_stats() const {
@@ -533,6 +559,7 @@ struct llama_moe_cache::impl {
             { stats_large.hits, stats_large.misses, stats_large.masked, stats_large.bytes },
         };
         log_stats("", st);
+        log_plan_stats();
     }
 
     void log_stats(const char * name, const llama_moe_cache_stats (& st)[2]) const {
