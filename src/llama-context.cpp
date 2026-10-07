@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -1500,15 +1501,12 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
 
     // the MoE cache must know if this ubatch checks the tokens proposed by a draft
     // the flag has to be set before the scheduler assigns the backends and picks the cache entries
-    if (moe_cache) {
-        moe_cache->set_verify(ubatch.verify);
-    }
+    // a stale flag would silently disable the cache for all later batches
+    const std::optional<llama_moe_cache::verify_guard> moe_verify = moe_cache
+        ? std::optional<llama_moe_cache::verify_guard>(std::in_place, *moe_cache, ubatch.verify)
+        : std::nullopt;
 
     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
-
-    if (moe_cache) {
-        moe_cache->set_verify(false);
-    }
 
     if (status != GGML_STATUS_SUCCESS) {
         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);

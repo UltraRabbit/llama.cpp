@@ -26,7 +26,27 @@ public:
 
     // the resolve() calls that follow belong to a batch that checks the tokens proposed by a draft
     // such a batch does not use the cache and computes its experts on the host
+    // the flag stays set until the next call, so reset it with verify_guard
     void set_verify(bool verify);
+
+    // keeps the flag set for the lifetime of the guard, then clears it
+    // the cache is disabled for all batches if a set_verify(true) is not matched by a reset
+    class verify_guard {
+    public:
+        verify_guard(llama_moe_cache & cache, bool verify) : cache(cache) {
+            cache.set_verify(verify);
+        }
+
+        ~verify_guard() {
+            cache.set_verify(false);
+        }
+
+        verify_guard(const verify_guard &) = delete;
+        verify_guard & operator=(const verify_guard &) = delete;
+
+    private:
+        llama_moe_cache & cache;
+    };
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
