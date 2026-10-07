@@ -392,8 +392,14 @@ struct llama_moe_cache::impl {
         }
         binding & b = bindings[it->second];
 
-        // large batches use most experts of a layer, so they gain little from the cache and would evict the experts used in generation
         const int64_t n_tokens = node->src[2]->ne[1];
+
+        // speculative decoding verifies several tokens at once, compute them on the host weights instead
+        if (n_tokens > 1) {
+            return false;
+        }
+
+        // large batches use most experts of a layer, so they gain little from the cache and would evict the experts used in generation
         if (n_tokens > max_batch || std::min(n_tokens*node->src[2]->ne[0], b.src->ne[2]) > groups[b.ig].n_slots) {
             return false;
         }
