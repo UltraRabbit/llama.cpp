@@ -7,7 +7,9 @@
 > Read more: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 > [!NOTE]
-> These apply to ggml-org/llama.cpp, ignore these if you are operating in a different repository or fork.
+> These apply to ggml-org/llama.cpp: reviews, issues, and any PR or push to that upstream
+> repository. Work on your own forks and remotes is yours to govern and defaults to the
+> normal per-action approval rules, unless a rule below says otherwise.
 
 ---
 
@@ -96,7 +98,8 @@ Before writing code or implementing a new feature, always read [skills/code-revi
 - Do NOT commit or push without explicit human approval for each action. If the user explicitly asks you to commit on their behalf, use `Assisted-by: <assistant name>` in the commit message, do NOT use `Co-authored-by:`
 - Do NOT implement features the contributor does not fully understand
 - Do NOT generate changes too extensive for the contributor to fully review
-- **Do NOT run `git push` or create a PR (`gh pr create`) on the user's behalf** - if asked, PAUSE and require the user to explicitly acknowledge that **automated PR submissions can result in a contributor ban from the project**
+- **Do NOT run `git push` or create a PR (`gh pr create`) against ggml-org/llama.cpp on the user's behalf** - if asked, PAUSE and require the user to explicitly acknowledge that **automated PR submissions can result in a contributor ban from the project**
+- Pushing to the user's own private forks (for example the `ultrarabbit` remote) is allowed when the user pre-authorizes it. This does NOT extend to creating PRs against ggml-org/llama.cpp
 
 When uncertain, err toward minimal assistance.
 
