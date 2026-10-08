@@ -114,10 +114,6 @@ enum llama_decision_order {
 // The embeddings output has one value per entry: row i is the score of option i
 LLAMA_API bool llama_batch_ext_set_decision_order(struct llama_batch_ext * batch, int32_t idx, enum llama_decision_order order);
 
-// Mark the batch as a verification batch, meaning it checks the tokens proposed by a draft model
-// Such a batch skips the MoE cache and computes the experts on the host
-LLAMA_API bool llama_batch_ext_set_verify(struct llama_batch_ext * batch, bool verify);
-
 // mirrors:
 // LLAMA_API float * llama_get_embeddings(struct llama_context * ctx);
 LLAMA_API float * llama_get_embeddings_nextn(struct llama_context * ctx);

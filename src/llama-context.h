@@ -404,6 +404,7 @@ private:
     llm_graph_result_ptr gf_res_reserve;
 
     llm_graph_result * gf_res_prev_active = nullptr;
+    bool gf_res_prev_verify = false; // ubatch.verify of the graph in gf_res_prev_active, it decides the MoE cache slots
 
     // host buffer for the model output (logits and embeddings)
     ggml_backend_buffer_ptr buf_output;

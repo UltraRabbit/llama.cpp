@@ -2434,11 +2434,6 @@ ggml_tensor * llm_graph_context::build_moe_cache_slots(
         return nullptr;
     }
 
-    // a verification batch does not reuse the experts of the generation, so compute it on the host weights instead
-    if (ubatch.verify) {
-        return nullptr;
-    }
-
     ggml_tensor * slot_map = moe_cache->get_slot_map(il, selected_experts->ne[1], selected_experts->ne[0]);
     if (slot_map == nullptr) {
         return nullptr;

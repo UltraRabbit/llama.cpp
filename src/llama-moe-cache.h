@@ -29,6 +29,29 @@ public:
     // the device that caches layer il
     ggml_backend_t backend(int32_t il) const;
 
+    // the get_slot_map() calls that follow belong to a batch that checks the tokens proposed by a draft
+    // such a batch does not use the cache and computes its experts on the host
+    void set_verify(bool verify);
+
+    // keeps the flag set for the lifetime of the guard, then clears it
+    // a flag left set would disable the cache for all later batches
+    class verify_guard {
+    public:
+        verify_guard(llama_moe_cache & cache, bool verify) : cache(cache) {
+            cache.set_verify(verify);
+        }
+
+        ~verify_guard() {
+            cache.set_verify(false);
+        }
+
+        verify_guard(const verify_guard &) = delete;
+        verify_guard & operator=(const verify_guard &) = delete;
+
+    private:
+        llama_moe_cache & cache;
+    };
+
     // the slot map of layer il, if its experts can be read from the cache for n_tokens tokens, nullptr otherwise
     ggml_tensor * get_slot_map(int32_t il, int64_t n_tokens, int64_t n_expert_used) const;
 

@@ -295,6 +295,7 @@ struct llama_moe_cache::impl {
 
     int32_t n_expert_used;
     int32_t n_min_experts;
+    bool verify = false; // the batch checks the tokens proposed by a draft
 
     stats stats_small; // up to 8 tokens per ubatch
     stats stats_large;
@@ -571,6 +572,11 @@ struct llama_moe_cache::impl {
         }
         const layer & l = layers[il];
 
+        // a verification batch does not reuse the experts of the generation, so compute it on the host weights instead
+        if (verify) {
+            return nullptr;
+        }
+
         // large batches use most experts of a layer, so they gain little from the cache and would evict the experts used in generation
         // only the kept experts of a batch are uploaded, so that is the demand to compare against the slots
         const int64_t n_keep = std::min<int64_t>(n_min_experts, n_expert_used);
@@ -580,6 +586,10 @@ struct llama_moe_cache::impl {
         // the graph may select fewer experts per token than the layer declares
         l.n_used = (int32_t) n_expert_used;
         return l.slot_map;
+    }
+
+    void set_verify(bool value) {
+        verify = value;
     }
 
     ggml_tensor * get_experts(const ggml_tensor * w) const {
@@ -766,6 +776,10 @@ ggml_backend_t llama_moe_cache::backend(int32_t il) const {
 
 ggml_tensor * llama_moe_cache::get_slot_map(int32_t il, int64_t n_tokens, int64_t n_expert_used) const {
     return pimpl->get_slot_map(il, n_tokens, n_expert_used);
+}
+
+void llama_moe_cache::set_verify(bool verify) {
+    pimpl->set_verify(verify);
 }
 
 ggml_tensor * llama_moe_cache::get_experts(const ggml_tensor * w) const {

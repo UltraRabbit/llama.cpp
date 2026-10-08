@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -1436,7 +1437,13 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
     // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
     const auto gparams = graph_params(res, ubatch, mctx, gtype);
 
-    if (!graph_reuse_disable && gf_res_prev_active == res && res->can_reuse(gparams)) {
+    // the MoE cache decides the slots while the graph is built, so it must know if this ubatch verifies draft tokens
+    // a flag left set would disable the cache for all later batches
+    const std::optional<llama_moe_cache::verify_guard> moe_verify = moe_cache
+        ? std::optional<llama_moe_cache::verify_guard>(std::in_place, *moe_cache, ubatch.verify)
+        : std::nullopt;
+
+    if (!graph_reuse_disable && gf_res_prev_verify == ubatch.verify && gf_res_prev_active == res && res->can_reuse(gparams)) {
         //LLAMA_LOG_DEBUG("%s: reusing previous graph\n", __func__);
 
         // with pipeline parallelism, the previous graph_compute_async may still be running
@@ -1473,6 +1480,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         }
 
         gf_res_prev_active = res;
+        gf_res_prev_verify = ubatch.verify;
     }
 
     // set the input data for the input tensors
