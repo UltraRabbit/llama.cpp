@@ -14,8 +14,15 @@ namespace {
 
 // LRU of the experts of a group of layers, the slot of each expert is kept in the slot map of its layer
 struct moe_cache_lru {
+    // credit ceiling of a slot, each eviction sweep spends one unit of it
+    static constexpr uint32_t use_limit = 15;
+
     int32_t n_expert = 0;
     int32_t n_slots  = 0;
+    // top ranked experts of every token that the cache keeps, the rest are computed only when already cached
+    int32_t n_min_experts = 0;
+    // the slot after the cached experts holds zeros, the dropped experts are mapped to it
+    int32_t zero_slot = 0;
 
     std::vector<int32_t *> slot_map; // [n_layer] data of the slot maps, -1 if the expert is not cached
     std::vector<int32_t>   key_of;   // [n_slots] il*n_expert + expert, -1 if empty
@@ -26,13 +33,23 @@ struct moe_cache_lru {
     int32_t head = -1;
     int32_t tail = -1;
 
+    // reuse credit per slot, one unit per reuse, spent by the eviction sweep
+    std::vector<uint32_t> uses;
+
+    // slots that hold an expert of the current plan call, they must not be evicted by it
+    std::vector<uint8_t> hot;
+
     std::vector<uint32_t> seen; // [n_expert]
     uint32_t seen_gen = 0;
     std::vector<int32_t> uniq;
+    std::vector<int32_t> kept;   // experts the tokens of the current plan call keep
+    std::vector<int32_t> masked; // experts dropped by the current plan call
 
-    void init(int32_t n_layer, int32_t n_expert, int32_t n_slots) {
-        this->n_expert = n_expert;
-        this->n_slots  = n_slots;
+    void init(int32_t n_layer, int32_t n_expert, int32_t n_slots, int32_t n_min_experts) {
+        this->n_expert      = n_expert;
+        this->n_slots       = n_slots;
+        this->n_min_experts = n_min_experts;
+        this->zero_slot     = n_slots;
         slot_map.assign(n_layer, nullptr);
         key_of.assign(n_slots, -1);
         prev.resize(n_slots);
@@ -43,11 +60,22 @@ struct moe_cache_lru {
         }
         head = 0;
         tail = n_slots - 1;
+        uses.assign(n_slots, 0);
+        hot.assign(n_slots, 0);
         seen.assign(n_expert, 0);
     }
 
+    // a slot that holds an expert, the zero slot and the free value -1 do not
+    bool is_cached(int32_t s) const {
+        return s >= 0 && s < n_slots;
+    }
+
+    bool is_masked(int32_t e) const {
+        return std::find(masked.begin(), masked.end(), e) != masked.end();
+    }
+
     // move slot s to the tail (most recently used)
-    void touch(int32_t s) {
+    void unlink(int32_t s) {
         if (s == tail) {
             return;
         }
@@ -64,6 +92,33 @@ struct moe_cache_lru {
         tail = s;
     }
 
+    // slot s was reused, give it one more unit of credit
+    void touch(int32_t s) {
+        uses[s] = std::min(uses[s] + 1, use_limit);
+        unlink(s);
+    }
+
+    // slot s now holds a different expert
+    void touch_new(int32_t s) {
+        uses[s] = 0;
+        unlink(s);
+    }
+
+    // pick the victim of one fill. rotate and spend one credit on every reused slot in the way,
+    // until a slot that the current call does not use is found.
+    int32_t evict(void) {
+        for (;;) {
+            const int32_t s = head;
+            if (!hot[s] && uses[s] == 0) {
+                return s;
+            }
+            if (!hot[s]) {
+                uses[s]--;
+            }
+            unlink(s);
+        }
+    }
+
     struct fill {
         int32_t expert;
         int32_t slot;
@@ -71,14 +126,31 @@ struct moe_cache_lru {
 
     // give a slot to each expert selected by ids in layer il, the misses evict the least recently used experts
     // returns false if the ids select more distinct experts than there are slots
-    bool plan(int32_t il, const int32_t * ids, size_t n_ids, std::vector<fill> & fills, size_t & n_hit) {
+    bool plan(int32_t il, const int32_t * ids, size_t n_ids, int32_t n_used, std::vector<fill> & fills, size_t & n_hit, size_t & n_mask) {
         fills.clear();
-        n_hit = 0;
+        n_hit  = 0;
+        n_mask = 0;
 
         if (++seen_gen == 0) {
             std::fill(seen.begin(), seen.end(), 0);
             seen_gen = 1;
         }
+
+        int32_t * slots = slot_map[il];
+        const size_t k = n_used > 0 ? (size_t) n_used : 0;
+        // the ids of a token arrive in gate order, so the top n_min_experts of every token stay in the cache
+        const size_t n_keep = std::min<size_t>((size_t) std::max(n_min_experts, 0), k);
+
+        kept.clear();
+        if (k > 0) {
+            for (size_t i = 0; i < n_ids; i += k) {
+                const size_t n = std::min(n_keep, n_ids - i);
+                kept.insert(kept.end(), ids + i, ids + i + n);
+            }
+            // sorted, so an expert outside the kept set is looked up by binary search
+            std::sort(kept.begin(), kept.end());
+        }
+
         uniq.clear();
         for (size_t i = 0; i < n_ids; ++i) {
             GGML_ASSERT(ids[i] >= 0 && ids[i] < n_expert);
@@ -87,34 +159,56 @@ struct moe_cache_lru {
                 uniq.push_back(ids[i]);
             }
         }
-        if (uniq.size() > (size_t) n_slots) {
+
+        // drop the experts that no token keeps and that are not in the cache yet, the cached ones compute for free
+        masked.clear();
+        if (k > 0 && n_keep < k) {
+            for (int32_t e : uniq) {
+                if (!is_cached(slots[e]) && !std::binary_search(kept.begin(), kept.end(), e)) {
+                    masked.push_back(e);
+                }
+            }
+        }
+        if (uniq.size() - masked.size() > (size_t) n_slots) {
             return false;
         }
 
-        int32_t * slots = slot_map[il];
-
         // hits go to the tail first, so the head can be evicted below
+        std::fill(hot.begin(), hot.end(), 0);
         for (int32_t e : uniq) {
-            if (slots[e] >= 0) {
+            if (is_cached(slots[e])) {
                 touch(slots[e]);
+                hot[slots[e]] = 1;
                 n_hit++;
             }
         }
         // sorted misses usually get consecutive slots, so the uploads can be merged
         std::sort(uniq.begin(), uniq.end());
         for (int32_t e : uniq) {
-            if (slots[e] >= 0) {
+            if (is_cached(slots[e]) || is_masked(e)) {
                 continue;
             }
-            const int32_t s = head;
+            const int32_t s = evict();
             if (key_of[s] >= 0) {
                 slot_map[key_of[s] / n_expert][key_of[s] % n_expert] = -1;
             }
             key_of[s] = il*n_expert + e;
             slots[e] = s;
-            touch(s);
+            hot[s] = 1;
+            touch_new(s);
             fills.push_back({ e, s });
         }
+
+        // the dropped experts read the zero slot, so their contribution is zero
+        for (size_t i = 0; i < n_ids; ++i) {
+            const int32_t e = ids[i];
+            if (is_masked(e)) {
+                slots[e] = zero_slot;
+            }
+            GGML_ASSERT(slots[e] >= 0);
+        }
+        n_mask = masked.size();
+
         return true;
     }
 };
@@ -179,6 +273,7 @@ struct llama_moe_cache::impl {
         int32_t ig = -1;                    // -1 if the layer is not cached
         ggml_tensor * slot_map = nullptr;   // I32 [1, n_expert] in host memory
         std::vector<ggml_tensor *> experts; // host expert tensors, in the order of the banks
+        mutable int32_t n_used = 0;         // experts per token of the ids tensor in the current graph
     };
 
     struct binding {
@@ -190,16 +285,22 @@ struct llama_moe_cache::impl {
     struct stats {
         size_t hits   = 0;
         size_t misses = 0;
+        size_t masked = 0;
         size_t bytes  = 0;
+        size_t plans  = 0; // plan() calls
+        size_t single = 0; // plan() calls that see one token only
     };
 
     static constexpr int64_t max_batch = 32;
 
     int32_t n_expert_used;
+    int32_t n_min_experts;
 
     stats stats_small; // up to 8 tokens per ubatch
     stats stats_large;
     stats stats_copy;  // experts copied from the cache for large batches
+    // totals at the previous log_turn_stats() call, to report per-turn counters
+    mutable llama_moe_cache_stats stats_logged[2];
 
     std::vector<device> devices;
     std::vector<group> groups;
@@ -218,8 +319,8 @@ struct llama_moe_cache::impl {
     // views used by copy_experts
     ggml_context_ptr ctx_views;
 
-    impl(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size) :
-            n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()) {
+    impl(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts) :
+            n_expert_used(model.hparams.n_expert_used_max()), n_min_experts(min_experts), layers(model.layers.size()) {
         for (size_t i = 0; i < backends.size(); ++i) {
             const auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backends[i]));
             if (dev_type == GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
@@ -237,9 +338,13 @@ struct llama_moe_cache::impl {
         if (model.hparams.n_expert == 0 || n_expert_used == 0) {
             throw std::runtime_error("MoE cache requires a MoE model");
         }
+        if (n_min_experts < 1 || n_min_experts > n_expert_used) {
+            throw std::runtime_error("MoE cache minimum experts is out of range");
+        }
 
         // only cache layers that keep all of their experts in host memory, on the device the layer is assigned to
         for (size_t il = 0; il < model.layers.size(); ++il) {
+            layers[il].n_used = (int32_t) model.hparams.n_expert_used((uint32_t) il);
             auto experts = llama_moe_cache_layer_experts(model.layers[il]);
             if (experts.empty() || !std::all_of(experts.begin(), experts.end(), llama_moe_cache_is_host_weight)) {
                 continue;
@@ -267,12 +372,12 @@ struct llama_moe_cache::impl {
             return;
         }
 
-        // one extra slot at the end, CUDA MMQ can read past the last expert
+        // one slot holds zeros for the dropped experts, one more lets CUDA MMQ read past the last expert
         auto alloc_size = [&](const group & g, int32_t n_slots) {
             const size_t alignment = ggml_backend_buft_get_alignment(devices[g.id].buft);
             size_t res = 0;
             for (const ggml_tensor * t : g.ref) {
-                res += GGML_PAD(t->nb[2]*(n_slots + 1), alignment);
+                res += GGML_PAD(t->nb[2]*(n_slots + 2), alignment);
             }
             return res;
         };
@@ -323,7 +428,7 @@ struct llama_moe_cache::impl {
                 g.n_slots = 0;
                 continue;
             }
-            g.lru.init(model.layers.size(), n_expert, g.n_slots);
+            g.lru.init(model.layers.size(), n_expert, g.n_slots, n_min_experts);
             n_tensors[g.id] += g.ref.size()*(1 + g.layers.size());
             n_tensors_host  += g.layers.size();
         }
@@ -361,7 +466,7 @@ struct llama_moe_cache::impl {
             }
             ggml_context * ctx = devices[g.id].ctx.get();
             for (const ggml_tensor * t : g.ref) {
-                ggml_tensor * bank = ggml_new_tensor_3d(ctx, t->type, t->ne[0], t->ne[1], g.n_slots + 1);
+                ggml_tensor * bank = ggml_new_tensor_3d(ctx.get(), t->type, t->ne[0], t->ne[1], g.n_slots + 2);
                 GGML_ASSERT(bank->nb[2] == t->nb[2]);
                 ggml_format_name(bank, "moe_cache.%zu.%s", ig, t->name);
                 g.banks.push_back(bank);
@@ -372,7 +477,7 @@ struct llama_moe_cache::impl {
                 l.experts = llama_moe_cache_layer_experts(model.layers[il]);
                 for (size_t ip = 0; ip < l.experts.size(); ++ip) {
                     ggml_tensor * bank   = g.banks[ip];
-                    ggml_tensor * cached = ggml_view_3d(ctx, bank, bank->ne[0], bank->ne[1], g.n_slots, bank->nb[1], bank->nb[2], 0);
+                    ggml_tensor * cached = ggml_view_3d(ctx.get(), bank, bank->ne[0], bank->ne[1], g.n_slots + 1, bank->nb[1], bank->nb[2], 0);
                     ggml_format_name(cached, "moe_cache.%s", l.experts[ip]->name);
                     bindings[l.experts[ip]] = { il, (int32_t) ip, cached };
                 }
@@ -442,6 +547,7 @@ struct llama_moe_cache::impl {
             }
             LLAMA_LOG_INFO("%s: %10s MoE cache size = %8.2f MiB for %.2f MiB of host experts\n", __func__,
                 ggml_backend_buft_name(d.buft), d.buf_size/1024.0/1024.0, d.host_bytes/1024.0/1024.0);
+            LLAMA_LOG_INFO("%s: keeps the top %d ranked experts of every token, the rest are computed only if already cached\n", __func__, n_min_experts);
             for (const group & g : groups) {
                 if (g.id == (int32_t) id) {
                     LLAMA_LOG_INFO("%s: %2zu layers, %s: %5d slots (%.1f%%)\n", __func__,
@@ -466,9 +572,13 @@ struct llama_moe_cache::impl {
         const layer & l = layers[il];
 
         // large batches use most experts of a layer, so they gain little from the cache and would evict the experts used in generation
-        if (n_tokens == 0 || n_tokens > max_batch || std::min(n_tokens*n_expert_used, l.slot_map->ne[1]) > groups[l.ig].n_slots) {
+        // only the kept experts of a batch are uploaded, so that is the demand to compare against the slots
+        const int64_t n_keep = std::min<int64_t>(n_min_experts, n_expert_used);
+        if (n_tokens == 0 || n_tokens > max_batch || std::min(n_tokens*n_keep, l.slot_map->ne[1]) > groups[l.ig].n_slots) {
             return nullptr;
         }
+        // the graph may select fewer experts per token than the layer declares
+        l.n_used = (int32_t) n_expert_used;
         return l.slot_map;
     }
 
@@ -490,7 +600,7 @@ struct llama_moe_cache::impl {
 
         // large batches only read the cache, so the experts used in generation stay in it
         const int32_t * slots = g.lru.slot_map[b.il];
-        if (slots == nullptr || slots[e] < 0) {
+        if (slots == nullptr || slots[e] < 0 || slots[e] >= g.n_slots) {
             return 0;
         }
         int64_t n = 1;
@@ -549,8 +659,9 @@ struct llama_moe_cache::impl {
         ggml_backend_tensor_get_async(backend, sel, ids.data(), 0, ggml_nbytes(sel));
         ggml_backend_synchronize(backend);
 
-        size_t n_hit = 0;
-        if (!g.lru.plan(il, ids.data(), ids.size(), fills, n_hit)) {
+        size_t n_hit  = 0;
+        size_t n_mask = 0;
+        if (!g.lru.plan(il, ids.data(), ids.size(), l.n_used, fills, n_hit, n_mask)) {
             GGML_ABORT("the MoE cache is too small for the experts selected in layer %d", il);
         }
 
@@ -574,7 +685,10 @@ struct llama_moe_cache::impl {
         stats & st = ids.size() <= (size_t) 8*n_expert_used ? stats_small : stats_large;
         st.hits   += n_hit;
         st.misses += fills.size();
+        st.masked += n_mask;
         st.bytes  += bytes;
+        st.plans  += 1;
+        st.single += ids.size() == (size_t) l.n_used ? 1 : 0;
 
         // the next copy synchronizes the backend before it changes the slot map again
         ggml_backend_tensor_set_async(backend, dst, src->data, 0, ggml_nbytes(src));
@@ -582,25 +696,66 @@ struct llama_moe_cache::impl {
         return true;
     }
 
-    void log_stats() const {
-        auto log = [](const char * name, const stats & st) {
-            const size_t n = st.hits + st.misses;
-            if (n == 0) {
+    // the drop policy applies to every batch size, report the batch mix the plans saw
+    void log_plan_stats() const {
+        auto log = [&](const char * st_name, const stats & s) {
+            if (s.plans == 0) {
                 return;
             }
-            LLAMA_LOG_INFO("llama_moe_cache: %s: hits = %zu, misses = %zu, hit rate = %.2f%%, uploaded = %.2f MiB\n",
-                name, st.hits, st.misses, 100.0*st.hits/n, st.bytes/1024.0/1024.0);
+            LLAMA_LOG_INFO("llama_moe_cache: %s: plans = %zu, single token = %zu\n",
+                st_name, s.plans, s.single);
         };
         log("ubatch <= 8", stats_small);
         log("ubatch  > 8", stats_large);
+    }
+
+    void log_stats() const {
+        const llama_moe_cache_stats st[2] = {
+            { stats_small.hits, stats_small.misses, stats_small.masked, stats_small.bytes },
+            { stats_large.hits, stats_large.misses, stats_large.masked, stats_large.bytes },
+        };
+        log_stats("", st);
+        log_plan_stats();
         if (stats_copy.hits > 0) {
             LLAMA_LOG_INFO("llama_moe_cache: large batches: %zu experts copied from the cache, %.2f MiB\n", stats_copy.hits, stats_copy.bytes/1024.0/1024.0);
         }
     }
+
+    void log_stats(const char * name, const llama_moe_cache_stats (& st)[2]) const {
+        auto log = [&](const char * st_name, const llama_moe_cache_stats & s) {
+            const size_t n = s.hits + s.misses;
+            if (n == 0) {
+                return;
+            }
+            LLAMA_LOG_INFO("llama_moe_cache: %s%s: hits = %zu, misses = %zu, masked = %zu, hit rate = %.2f%%, uploaded = %.2f MiB\n",
+                name, st_name, s.hits, s.misses, s.masked, 100.0*s.hits/n, s.bytes/1024.0/1024.0);
+        };
+        log("ubatch <= 8", st[0]);
+        log("ubatch  > 8", st[1]);
+    }
 };
 
-llama_moe_cache::llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size) :
-    pimpl(new impl(model, backends, bufts, size)) {
+void llama_moe_cache::log_turn_stats() const {
+    // the counters are cumulative, so report the difference from the previous call
+    const impl::stats * cur[2] = { &pimpl->stats_small, &pimpl->stats_large };
+
+    llama_moe_cache_stats turn[2];
+    for (size_t i = 0; i < 2; ++i) {
+        const llama_moe_cache_stats now = { cur[i]->hits, cur[i]->misses, cur[i]->masked, cur[i]->bytes };
+        turn[i] = {
+            now.hits   - pimpl->stats_logged[i].hits,
+            now.misses - pimpl->stats_logged[i].misses,
+            now.masked - pimpl->stats_logged[i].masked,
+            now.bytes  - pimpl->stats_logged[i].bytes,
+        };
+        pimpl->stats_logged[i] = now;
+    }
+
+    pimpl->log_stats("turn ", turn);
+}
+
+llama_moe_cache::llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts) :
+    pimpl(new impl(model, backends, bufts, size, min_experts)) {
 }
 
 llama_moe_cache::~llama_moe_cache() = default;

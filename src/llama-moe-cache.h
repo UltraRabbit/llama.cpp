@@ -2,18 +2,28 @@
 
 #include "ggml-backend.h"
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <vector>
 
 struct llama_model;
 
+// cumulative MoE cache counters
+struct llama_moe_cache_stats {
+    size_t hits   = 0;
+    size_t misses = 0;
+    size_t masked = 0; // experts dropped instead of uploaded
+    size_t bytes  = 0;
+};
+
 // keeps the most recently used experts of host-resident MoE layers in a device buffer
 // each layer has a slot map in host memory: when the scheduler copies it to the device, the copy callback uploads the missing experts
 class llama_moe_cache {
 public:
     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
-    llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size);
+    llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
+        int32_t min_experts);
     ~llama_moe_cache();
 
     // the device that caches layer il
@@ -33,6 +43,10 @@ public:
     int64_t copy_experts(ggml_backend_t backend, const ggml_tensor * w, ggml_tensor * dst, int64_t e, int64_t last);
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
+
+    // log the counters accumulated since the previous call
+    // bucket 0 is ubatch up to 8 tokens, bucket 1 is the rest
+    void log_turn_stats() const;
 
 private:
     struct impl;

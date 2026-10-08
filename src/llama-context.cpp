@@ -273,9 +273,10 @@ llama_context::llama_context(
         }
     }
 
-    cparams.op_offload     = params.op_offload;
-    cparams.kv_unified     = params.kv_unified;
-    cparams.moe_cache_size = params.moe_cache_size;
+    cparams.op_offload            = params.op_offload;
+    cparams.kv_unified            = params.kv_unified;
+    cparams.moe_cache_size        = params.moe_cache_size;
+    cparams.moe_cache_min_experts = params.moe_cache_min_experts;
 
     // initialized later
     cparams.pipeline_parallel = false;
@@ -821,6 +822,16 @@ const llama_cparams & llama_context::get_cparams() const {
 
 ggml_backend_sched_t llama_context::get_sched() const {
     return sched.get();
+}
+
+void llama_moe_cache_print(const llama_context * ctx) {
+    ctx->log_moe_cache_stats();
+}
+
+void llama_context::log_moe_cache_stats() const {
+    if (moe_cache) {
+        moe_cache->log_turn_stats();
+    }
 }
 
 uint32_t llama_context::n_ctx() const {
@@ -3876,6 +3887,7 @@ llama_context_params llama_context_default_params() {
         /*.type_k                      =*/ GGML_TYPE_F16,
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
+        /*.moe_cache_min_experts       =*/ 8,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
         /*.embeddings                  =*/ false,

@@ -2787,6 +2787,17 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_MIB"));
     add_opt(common_arg(
+        {"--moe-cache-min-experts"}, "N",
+        "MoE cache: top ranked experts per token that are uploaded on a miss\n"
+        "the other experts are computed only if they are already cached (default: 8)",
+        [](common_params & params, int value) {
+            if (value < 1) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_min_experts = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_MIN_EXPERTS"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",
