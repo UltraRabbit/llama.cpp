@@ -35,6 +35,7 @@ bool llama_batch_allocr::init(
     this->n_embd       = batch_inp.n_embd > 0 ? batch_inp.n_embd : batch_inp.n_embd_inp;
     this->n_embd_state = batch_inp.n_embd_state;
     this->n_seq_max    = batch_inp.n_seq_max;
+    this->verify    = batch_inp.verify;
 
     const int32_t n_tok = (int32_t) batch_inp.tokens.size();
 
@@ -978,6 +979,8 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
         /*.data         =*/ std::move(udata),
     };
 
+    res.verify = verify;
+
     if (debug > 0) {
         LLAMA_LOG_DEBUG("%s: added ubatch to split:\n", __func__);
 
@@ -1190,6 +1193,7 @@ void llama_batch_ext::clear() {
     embd  .clear();
     state .clear();
     n_embd = 0;
+    verify = false;
 }
 
 int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
@@ -1337,6 +1341,11 @@ bool llama_batch_ext::set_decision_order(int32_t idx, int32_t order) {
     return true;
 }
 
+bool llama_batch_ext::set_verify(bool value) {
+    verify = value;
+    return true;
+}
+
 // llama_batch_ext C API
 
 llama_batch_ext * llama_batch_ext_init(llama_context * ctx) {
@@ -1403,6 +1412,10 @@ bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, boo
 
 bool llama_batch_ext_set_decision_order(llama_batch_ext * batch, int32_t idx, llama_decision_order order) {
     return batch->set_decision_order(idx, order);
+}
+
+bool llama_batch_ext_set_verify(llama_batch_ext * batch, bool verify) {
+    return batch->set_verify(verify);
 }
 
 // llama_batch_compat
