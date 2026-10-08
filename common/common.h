@@ -597,6 +597,8 @@ struct common_params {
 
     int32_t moe_cache_min_experts = 8; // MoE cache: top ranked experts per token that are uploaded, the others are computed only if they are already cached
 
+    bool moe_cache_verify_early_exit = false; // MoE cache: skip the cache for batches that verify draft tokens and compute their experts on the host weights
+
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
     // multimodal models (see tools/mtmd)

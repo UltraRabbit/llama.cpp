@@ -2798,6 +2798,14 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_MIN_EXPERTS"));
     add_opt(common_arg(
+        {"--moe-cache-verify-early-exit"},
+        {"--no-moe-cache-verify-early-exit"},
+        "MoE cache: skip the cache for batches that verify draft tokens, their experts are computed on the host weights instead (default: disabled)",
+        [](common_params & params, bool value) {
+            params.moe_cache_verify_early_exit = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_VERIFY_EARLY_EXIT"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",

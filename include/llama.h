@@ -400,6 +400,8 @@ extern "C" {
 
         int32_t moe_cache_min_experts; // number of top ranked experts per token that the MoE cache uploads, the others are computed only if they are already cached [EXPERIMENTAL]
 
+        bool moe_cache_verify_early_exit; // skip the MoE cache for batches that verify draft tokens and compute their experts on the host weights [EXPERIMENTAL]
+
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted
         // currently works only with CPU execution
