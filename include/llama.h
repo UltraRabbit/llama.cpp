@@ -397,8 +397,7 @@ extern "C" {
 
         size_t moe_cache_size; // device cache in bytes for the experts kept in host memory, 0 = disabled [EXPERIMENTAL]
 
-        int32_t moe_cache_protect_top; // number of top ranked experts per token that the MoE cache never drops [EXPERIMENTAL]
-        int32_t moe_cache_min_experts; // number of experts per token that the MoE cache computes at least [EXPERIMENTAL]
+        int32_t moe_cache_min_experts; // number of top ranked experts per token that the MoE cache uploads, the others are computed only if they are already cached [EXPERIMENTAL]
 
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted

@@ -2787,20 +2787,11 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_MIB"));
     add_opt(common_arg(
-        {"--moe-cache-protect-top"}, "N",
-        "MoE cache: number of top ranked experts per token that are never dropped (default: 5)",
-        [](common_params & params, int value) {
-            if (value < 0) {
-                throw std::invalid_argument("invalid value");
-            }
-            params.moe_cache_protect_top = value;
-        }
-    ).set_env("LLAMA_ARG_MOE_CACHE_PROTECT_TOP"));
-    add_opt(common_arg(
         {"--moe-cache-min-experts"}, "N",
-        "MoE cache: number of experts per token that are computed at least (default: 8)",
+        "MoE cache: top ranked experts per token that are uploaded on a miss\n"
+        "the other experts are computed only if they are already cached (default: 8)",
         [](common_params & params, int value) {
-            if (value < 0) {
+            if (value < 1) {
                 throw std::invalid_argument("invalid value");
             }
             params.moe_cache_min_experts = value;
