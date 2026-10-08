@@ -7,7 +7,9 @@
 > Read more: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 > [!NOTE]
-> These apply to ggml-org/llama.cpp, ignore these if you are operating in a different repository or fork.
+> These apply to ggml-org/llama.cpp: reviews, issues, and any PR or push to that upstream
+> repository. Work on your own forks and remotes is yours to govern and defaults to the
+> normal per-action approval rules, unless a rule below says otherwise.
 
 ---
 
