@@ -6557,7 +6557,19 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
     }
 }
 
+// Upper bound on n for a step to be treated as decode-like rather than batched.
+// A speculative-decode step evaluates n = 1 + n_draft tokens; common draft widths
+// sit well inside this. Prefill uses far larger n and is unaffected.
+static constexpr uint32_t MMVQ_MAX_DECODE_LIKE_N = 8;
+
 static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_t n, uint32_t k, ggml_type src0_type) {
+    const bool is_k_quant =
+        src0_type == GGML_TYPE_Q2_K ||
+        src0_type == GGML_TYPE_Q3_K ||
+        src0_type == GGML_TYPE_Q4_K ||
+        src0_type == GGML_TYPE_Q5_K ||
+        src0_type == GGML_TYPE_Q6_K;
+
     if (device->mmvq_mode == 1) {
         return true;
     } else if (device->mmvq_mode == -1) {
@@ -6571,8 +6583,10 @@ static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_
         return false;
     }
 
-    // MMVQ is generally good for batches
-    if (n > 1) {
+    // MMVQ is generally good for batches. Small n is a speculative-decode step
+    // (n = 1 + n_draft) where Q8_1 activation quant does not amortize and perturbs
+    // the logits, lowering draft acceptance. Let decode-like n reach the heuristics below.
+    if (n > MMVQ_MAX_DECODE_LIKE_N) {
         return true;
     }
 
@@ -6603,7 +6617,8 @@ static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_
         case GGML_TYPE_Q8_0:
             return device->architecture == vk_device_architecture::AMD_GCN;
         default:
-            return true;
+            // Q8_1 quant does not pay off for k-quants at small k.
+            return !is_k_quant || k >= 4096;
         }
     case VK_VENDOR_ID_INTEL:
         if (device->architecture == vk_device_architecture::INTEL_XE2) {
