@@ -106,7 +106,27 @@ struct moe_cache_lru {
 
     // pick the victim of one fill. rotate and spend one credit on every reused slot in the way,
     // until a slot that the current call does not use is found.
-    int32_t evict(void) {
+    int32_t evict(int32_t il) {
+        // the experts of the layers that still follow are reused sooner than the experts of the
+        // layers that already ran, so keep the slots of the following layers if possible
+        for (int32_t n_scan = 0; n_scan < n_slots; ++n_scan) {
+            const int32_t s = head;
+            // an empty slot has no layer
+            const int32_t s_layer = key_of[s] < 0 ? -1 : key_of[s] / n_expert;
+            if (s_layer > il) {
+                // do not spend its credit, the layer that owns it is close ahead
+                unlink(s);
+                continue;
+            }
+            if (!hot[s] && uses[s] == 0) {
+                return s;
+            }
+            if (!hot[s]) {
+                uses[s]--;
+            }
+            unlink(s);
+        }
+        // one lap saw every slot and none of them is of this layer or of an earlier one
         for (;;) {
             const int32_t s = head;
             if (!hot[s] && uses[s] == 0) {
@@ -188,7 +208,7 @@ struct moe_cache_lru {
             if (is_cached(slots[e]) || is_masked(e)) {
                 continue;
             }
-            const int32_t s = evict();
+            const int32_t s = evict(il);
             if (key_of[s] >= 0) {
                 slot_map[key_of[s] / n_expert][key_of[s] % n_expert] = -1;
             }
