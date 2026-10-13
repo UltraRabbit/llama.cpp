@@ -104,9 +104,27 @@ struct moe_cache_lru {
         unlink(s);
     }
 
-    // pick the victim of one fill. rotate and spend one credit on every reused slot in the way,
-    // until a slot that the current call does not use is found.
-    int32_t evict(void) {
+    // pick the victim of one fill in layer il. rotate and spend one credit on every reused slot of
+    // this layer in the way. if no slot of this layer can be freed, spend the credit of every layer.
+    int32_t evict(int32_t il) {
+        for (;;) {
+            bool spent = false;
+            for (int32_t n = 0; n < n_slots; ++n) {
+                const int32_t s = head;
+                if (!hot[s] && uses[s] == 0) {
+                    return s;
+                }
+                if (!hot[s] && key_of[s] >= 0 && key_of[s] / n_expert == il) {
+                    uses[s]--;
+                    spent = true;
+                }
+                unlink(s);
+            }
+            if (!spent) {
+                break;
+            }
+        }
+        // this layer has no slot left to free, so every layer has to give one
         for (;;) {
             const int32_t s = head;
             if (!hot[s] && uses[s] == 0) {
@@ -188,7 +206,7 @@ struct moe_cache_lru {
             if (is_cached(slots[e]) || is_masked(e)) {
                 continue;
             }
-            const int32_t s = evict();
+            const int32_t s = evict(il);
             if (key_of[s] >= 0) {
                 slot_map[key_of[s] / n_expert][key_of[s] % n_expert] = -1;
             }
