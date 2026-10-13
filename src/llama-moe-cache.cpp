@@ -21,6 +21,8 @@ struct moe_cache_lru {
     int32_t n_slots  = 0;
     // top ranked experts of every token that the cache keeps, the rest are computed only when already cached
     int32_t n_min_experts = 0;
+    // credit a slot starts with when it takes a new expert
+    uint32_t initial_credit = 0;
     // the slot after the cached experts holds zeros, the dropped experts are mapped to it
     int32_t zero_slot = 0;
 
@@ -45,11 +47,12 @@ struct moe_cache_lru {
     std::vector<int32_t> kept;   // experts the tokens of the current plan call keep
     std::vector<int32_t> masked; // experts dropped by the current plan call
 
-    void init(int32_t n_layer, int32_t n_expert, int32_t n_slots, int32_t n_min_experts) {
-        this->n_expert      = n_expert;
-        this->n_slots       = n_slots;
-        this->n_min_experts = n_min_experts;
-        this->zero_slot     = n_slots;
+    void init(int32_t n_layer, int32_t n_expert, int32_t n_slots, int32_t n_min_experts, int32_t initial_credit) {
+        this->n_expert       = n_expert;
+        this->n_slots        = n_slots;
+        this->n_min_experts  = n_min_experts;
+        this->initial_credit = (uint32_t) initial_credit;
+        this->zero_slot      = n_slots;
         slot_map.assign(n_layer, nullptr);
         key_of.assign(n_slots, -1);
         prev.resize(n_slots);
@@ -100,7 +103,7 @@ struct moe_cache_lru {
 
     // slot s now holds a different expert
     void touch_new(int32_t s) {
-        uses[s] = 0;
+        uses[s] = initial_credit;
         unlink(s);
     }
 
@@ -338,7 +341,7 @@ struct llama_moe_cache::impl {
     // views used by copy_experts
     ggml_context_ptr ctx_views;
 
-    impl(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts) :
+    impl(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts, int32_t initial_credit) :
             n_expert_used(model.hparams.n_expert_used_max()), n_min_experts(min_experts), layers(model.layers.size()) {
         for (size_t i = 0; i < backends.size(); ++i) {
             const auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backends[i]));
@@ -359,6 +362,9 @@ struct llama_moe_cache::impl {
         }
         if (n_min_experts < 1 || n_min_experts > n_expert_used) {
             throw std::runtime_error("MoE cache minimum experts is out of range");
+        }
+        if (initial_credit < 0 || initial_credit > (int32_t) moe_cache_lru::use_limit) {
+            throw std::runtime_error("MoE cache initial credit is out of range");
         }
 
         // only cache layers that keep all of their experts in host memory, on the device the layer is assigned to
@@ -447,7 +453,7 @@ struct llama_moe_cache::impl {
                 g.n_slots = 0;
                 continue;
             }
-            g.lru.init(model.layers.size(), n_expert, g.n_slots, n_min_experts);
+            g.lru.init(model.layers.size(), n_expert, g.n_slots, n_min_experts, initial_credit);
             n_tensors[g.id] += g.ref.size()*(1 + g.layers.size());
             n_tensors_host  += g.layers.size();
         }
@@ -567,6 +573,7 @@ struct llama_moe_cache::impl {
             LLAMA_LOG_INFO("%s: %10s MoE cache size = %8.2f MiB for %.2f MiB of host experts\n", __func__,
                 ggml_backend_buft_name(d.buft), d.buf_size/1024.0/1024.0, d.host_bytes/1024.0/1024.0);
             LLAMA_LOG_INFO("%s: keeps the top %d ranked experts of every token, the rest are computed only if already cached\n", __func__, n_min_experts);
+            LLAMA_LOG_INFO("%s: a new slot starts with %d units of reuse credit\n", __func__, initial_credit);
             for (const group & g : groups) {
                 if (g.id == (int32_t) id) {
                     LLAMA_LOG_INFO("%s: %2zu layers, %s: %5d slots (%.1f%%)\n", __func__,
@@ -782,8 +789,8 @@ void llama_moe_cache::log_turn_stats() const {
     pimpl->log_stats("turn ", turn);
 }
 
-llama_moe_cache::llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts) :
-    pimpl(new impl(model, backends, bufts, size, min_experts)) {
+llama_moe_cache::llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size, int32_t min_experts, int32_t initial_credit) :
+    pimpl(new impl(model, backends, bufts, size, min_experts, initial_credit)) {
 }
 
 llama_moe_cache::~llama_moe_cache() = default;

@@ -361,6 +361,7 @@ llama_context::llama_context(
     cparams.kv_unified            = params.kv_unified;
     cparams.moe_cache_size        = params.moe_cache_size;
     cparams.moe_cache_min_experts = params.moe_cache_min_experts;
+    cparams.moe_cache_initial_credit = params.moe_cache_initial_credit;
     cparams.moe_cache_verify_early_exit = params.moe_cache_verify_early_exit;
 
     // initialized later
@@ -553,7 +554,7 @@ llama_context::llama_context(
 
         if (cparams.moe_cache_size > 0) {
             moe_cache = std::make_unique<llama_moe_cache>(model, backend_ptrs, backend_buft, cparams.moe_cache_size,
-                cparams.moe_cache_min_experts);
+                cparams.moe_cache_min_experts, cparams.moe_cache_initial_credit);
         }
 
         sched_reserve();
@@ -4026,6 +4027,7 @@ llama_context_params llama_context_default_params() {
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
         /*.moe_cache_min_experts       =*/ 8,
+        /*.moe_cache_initial_credit    =*/ 0,
         /*.moe_cache_verify_early_exit =*/ false,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,

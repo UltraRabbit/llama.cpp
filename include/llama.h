@@ -400,6 +400,8 @@ extern "C" {
 
         int32_t moe_cache_min_experts; // number of top ranked experts per token that the MoE cache uploads, the others are computed only if they are already cached [EXPERIMENTAL]
 
+        int32_t moe_cache_initial_credit; // reuse credit that a slot starts with when it takes a new expert, each eviction sweep spends one unit of it [EXPERIMENTAL]
+
         bool moe_cache_verify_early_exit; // skip the MoE cache for batches that verify draft tokens and compute their experts on the host weights [EXPERIMENTAL]
 
         // Abort callback
