@@ -601,8 +601,6 @@ struct common_params {
 
     int32_t moe_cache_initial_credit = 0; // MoE cache: reuse credit a slot starts with when it takes a new expert, each eviction sweep spends one unit of it
 
-    bool moe_cache_verify_early_exit = false; // MoE cache: skip the cache for batches that verify draft tokens and compute their experts on the host weights
-
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
     // multimodal models (see tools/mtmd)
@@ -1093,8 +1091,6 @@ struct common_batch {
     std::vector<token> tokens; // mirror of the entries, tokens[i] describes batch index i
     llama_batch_ext_ptr batch;
 
-    bool verify = false; // the batch checks the tokens proposed by a draft, see llama_batch_ext_set_verify()
-
     int32_t n_pos = 1; // positions per embedding entry, GGML_MROPE_SECTIONS for MROPE/IMROPE
 
     common_batch() = default;
@@ -1110,8 +1106,6 @@ struct common_batch {
     bool has_embd () const { return !tokens.empty() && tokens[0].embd.data != nullptr; }
 
     void clear();
-
-    void set_verify(bool value) { verify = value; }
 
     // returns the batch index
     int32_t add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output);

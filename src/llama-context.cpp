@@ -18,7 +18,6 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -362,7 +361,6 @@ llama_context::llama_context(
     cparams.moe_cache_size        = params.moe_cache_size;
     cparams.moe_cache_min_experts = params.moe_cache_min_experts;
     cparams.moe_cache_initial_credit = params.moe_cache_initial_credit;
-    cparams.moe_cache_verify_early_exit = params.moe_cache_verify_early_exit;
 
     // initialized later
     cparams.pipeline_parallel = false;
@@ -1533,15 +1531,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
     // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
     const auto gparams = graph_params(res, ubatch, mctx, gtype);
 
-    // the MoE cache decides the slots while the graph is built, so it must know if this ubatch verifies draft tokens
-    // a flag left set would disable the cache for all later batches
-    // verify changes the graph only when the early exit is enabled, so it joins the reuse key only then
-    const bool moe_verify = ubatch.verify && cparams.moe_cache_verify_early_exit;
-    const std::optional<llama_moe_cache::verify_guard> moe_verify_guard = moe_cache && moe_verify
-        ? std::optional<llama_moe_cache::verify_guard>(std::in_place, *moe_cache, moe_verify)
-        : std::nullopt;
-
-    if (!graph_reuse_disable && gf_res_prev_verify == moe_verify && gf_res_prev_active == res && res->can_reuse(gparams)) {
+    if (!graph_reuse_disable && gf_res_prev_active == res && res->can_reuse(gparams)) {
         //LLAMA_LOG_DEBUG("%s: reusing previous graph\n", __func__);
 
         // with pipeline parallelism, the previous graph_compute_async may still be running
@@ -1578,7 +1568,6 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         }
 
         gf_res_prev_active = res;
-        gf_res_prev_verify = moe_verify;
     }
 
     // set the input data for the input tensors
@@ -4028,7 +4017,6 @@ llama_context_params llama_context_default_params() {
         /*.moe_cache_size              =*/ 0,
         /*.moe_cache_min_experts       =*/ 8,
         /*.moe_cache_initial_credit    =*/ 0,
-        /*.moe_cache_verify_early_exit =*/ false,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
         /*.embeddings                  =*/ false,

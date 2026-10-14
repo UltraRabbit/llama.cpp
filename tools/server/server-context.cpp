@@ -138,9 +138,6 @@ struct server_slot; // forward declaration
 struct server_batch {
     common_batch view; // the rendered sub-batch [off, off + n_tokens), see render()
 
-    // the batch holds tokens proposed by a draft, set in handle_last_sampled_token()
-    bool verify = false;
-
     struct token {
         int32_t id_slot;
         llama_token token;
@@ -197,7 +194,6 @@ struct server_batch {
         tokens.clear();
         embd.clear();
         view.clear();
-        verify            = false;
         slot_batched      = nullptr;
         alora_scale       = -1.0f;
         alora_disabled_id = 0;
@@ -235,7 +231,6 @@ struct server_batch {
         GGML_ASSERT(n_tokens > 0 && off + n_tokens <= size());
 
         view.clear();
-        view.set_verify(verify);
         for (int32_t i = off; i < off + n_tokens; i++) {
             const auto & t = tokens[i];
             if (t.i_embd >= 0) {
@@ -569,9 +564,6 @@ struct server_slot {
                     sampled, prompt.tokens.size(), spec_draft.size(), prompt.tokens.pos_next());
 
             GGML_ASSERT(spec_i_batch.empty());
-
-            // the batch holds draft tokens, so this forward does not use the MoE cache
-            batch.verify = true;
 
             spec_i_batch.push_back(batch.size());
             for (size_t i = 0; i < spec_draft.size(); i++) {

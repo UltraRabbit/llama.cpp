@@ -402,8 +402,6 @@ extern "C" {
 
         int32_t moe_cache_initial_credit; // reuse credit that a slot starts with when it takes a new expert, each eviction sweep spends one unit of it [EXPERIMENTAL]
 
-        bool moe_cache_verify_early_exit; // skip the MoE cache for batches that verify draft tokens and compute their experts on the host weights [EXPERIMENTAL]
-
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted
         // currently works only with CPU execution
@@ -1091,12 +1089,6 @@ extern "C" {
                                 struct llama_batch_ext * batch,
                                                int32_t   idx,
                                        const llama_pos * pos);
-
-    // Mark the batch as a verification batch, meaning it checks the tokens proposed by a draft model
-    // Such a batch skips the MoE cache and computes the experts on the host
-    LLAMA_API bool llama_batch_ext_set_verify(
-                                struct llama_batch_ext * batch,
-                                                  bool  verify);
 
     // TODO: implement get_embeddings() and get_logits() for llama_batch_ext
 
