@@ -160,7 +160,8 @@ struct moe_cache_lru {
         int32_t * slots = slot_map[il];
         const size_t k = n_used > 0 ? (size_t) n_used : 0;
         // the ids of a token arrive in gate order, so the top n_min_experts of every token stay in the cache
-        const size_t n_keep = std::min<size_t>((size_t) std::max(n_min_experts, 0), k);
+        // n_min_experts == 0 means keep all k experts (no masking), so it maps to n_keep = k
+        const size_t n_keep = n_min_experts == 0 ? k : std::min<size_t>((size_t) n_min_experts, k);
 
         kept.clear();
         if (k > 0) {
@@ -359,7 +360,7 @@ struct llama_moe_cache::impl {
         if (model.hparams.n_expert == 0 || n_expert_used == 0) {
             throw std::runtime_error("MoE cache requires a MoE model");
         }
-        if (n_min_experts < 1 || n_min_experts > n_expert_used) {
+        if (n_min_experts < 0 || n_min_experts > n_expert_used) {
             throw std::runtime_error("MoE cache minimum experts is out of range");
         }
         if (initial_credit < 0 || initial_credit > (int32_t) moe_cache_lru::use_limit) {
@@ -571,7 +572,7 @@ struct llama_moe_cache::impl {
             }
             LLAMA_LOG_INFO("%s: %10s MoE cache size = %8.2f MiB for %.2f MiB of host experts\n", __func__,
                 ggml_backend_buft_name(d.buft), d.buf_size/1024.0/1024.0, d.host_bytes/1024.0/1024.0);
-            LLAMA_LOG_INFO("%s: keeps the top %d ranked experts of every token, the rest are computed only if already cached\n", __func__, n_min_experts);
+            LLAMA_LOG_INFO("%s: keeps the top %d ranked experts of every token, the rest are computed only if already cached\n", __func__, n_min_experts > 0 ? n_min_experts : (int) n_expert_used);
             LLAMA_LOG_INFO("%s: a new slot starts with %d units of reuse credit\n", __func__, initial_credit);
             for (const group & g : groups) {
                 if (g.id == (int32_t) id) {

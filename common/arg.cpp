@@ -2790,9 +2790,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     add_opt(common_arg(
         {"--moe-cache-min-experts"}, "N",
         "MoE cache: top ranked experts per token that are uploaded on a miss\n"
-        "the other experts are computed only if they are already cached (default: 8)",
+        "the other experts are computed only if they are already cached (default: 0, keep all)",
         [](common_params & params, int value) {
-            if (value < 1) {
+            if (value < 0) {
                 throw std::invalid_argument("invalid value");
             }
             params.moe_cache_min_experts = value;

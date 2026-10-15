@@ -4015,7 +4015,7 @@ llama_context_params llama_context_default_params() {
         /*.type_k                      =*/ GGML_TYPE_F16,
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
-        /*.moe_cache_min_experts       =*/ 8,
+        /*.moe_cache_min_experts       =*/ 0,
         /*.moe_cache_initial_credit    =*/ 0,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
