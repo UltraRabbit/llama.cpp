@@ -712,7 +712,7 @@ void llama_context::sched_new(size_t max_nodes, bool parallel) {
             backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, parallel, cparams.op_offload));
 
     ggml_backend_sched_set_copy_callback(sched.get(), sched_copy_experts, this);
-    ggml_backend_sched_set_realloc_callback(sched.get(), sched_graph_realloc, this);
+    // ggml_backend_sched_set_realloc_callback(sched.get(), sched_graph_realloc, this);
 }
 
 void llama_context::sched_reserve() {
