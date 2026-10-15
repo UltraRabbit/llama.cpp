@@ -7964,14 +7964,29 @@ static void ggml_vk_mul_mat_vec_id_q_f16(ggml_backend_vk_context * ctx, vk_conte
     }
 }
 
-static bool ggml_vk_use_mul_mat_vec_id(const ggml_tensor * dst) {
+static bool ggml_vk_use_mul_mat_vec_id(const ggml_tensor * dst, const vk_device & device) {
     const ggml_tensor * src0 = dst->src[0];
-    const ggml_tensor * ids = dst->src[2];
-    return ids->ne[1] <= 8 && (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type));
+    const ggml_tensor * src1 = dst->src[1];
+    const ggml_tensor * ids  = dst->src[2];
+
+    // fast vectorized kernel for small batch matmul id ops
+    bool use_vec_id = ids->ne[1] <= 8;
+
+    // AMD RDNA3/4 tiled kernel is much slower than the vectorized one for decode
+    // with a few concurrent sequences (batch 9-64). coopmat2 devices already fix this.
+    if (!device->coopmat2) {
+        uint32_t n_tokens = dst->ne[2];
+        uint32_t n_per_tok = src1->ne[0];
+        uint32_t n_experts = src0->ne[2];
+        // density gate: only for MoE models with low routing density
+        use_vec_id |= (n_tokens * n_per_tok <= 2 * n_experts) && (n_tokens <= 64);
+    }
+
+    return use_vec_id && (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type));
 }
 
-bool ggml_vk_use_mul_mat_vec_id(const struct ggml_cgraph * cgraph, int node_idx) {
-    return ggml_vk_use_mul_mat_vec_id(cgraph->nodes[node_idx]);
+bool ggml_vk_use_mul_mat_vec_id(const struct ggml_cgraph * cgraph, int node_idx, const vk_device & device) {
+    return ggml_vk_use_mul_mat_vec_id(cgraph->nodes[node_idx], device);
 }
 
 void ggml_vk_mul_mat_id(ggml_backend_vk_context * ctx, vk_context& subctx, const struct ggml_cgraph * cgraph, int node_idx) {
@@ -7980,7 +7995,7 @@ void ggml_vk_mul_mat_id(ggml_backend_vk_context * ctx, vk_context& subctx, const
     ggml_tensor * src1 = dst->src[1];
     ggml_tensor * src2 = dst->src[2];
     VK_LOG_DEBUG("ggml_vk_mul_mat_id(" << src0 << ", " << src1 << ", " << src2 << ", " << dst << ")");
-    if (ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+    if (ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
         ggml_vk_mul_mat_vec_id_q_f16(ctx, subctx, cgraph, node_idx);
     } else {
         ggml_vk_mul_mat_id_q_f16(ctx, subctx, src0, src1, src2, dst);
@@ -13726,7 +13741,7 @@ bool ggml_vk_can_fuse(const ggml_backend_vk_context * ctx, const struct ggml_cgr
             return false;
         }
         // mat-vec only
-        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
             return false;
         }
         // shaders assume the types match
@@ -13761,7 +13776,7 @@ bool ggml_vk_can_fuse(const ggml_backend_vk_context * ctx, const struct ggml_cgr
             return false;
         }
         // mat-vec only
-        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
             return false;
         }
         // shaders assume the types match
@@ -15520,7 +15535,7 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
             {
                 ggml_type src0_type = op->src[0]->type;
                 if (op->op == GGML_OP_MUL_MAT_ID) {
-                    if (!ggml_vk_use_mul_mat_vec_id(op)) {
+                    if (!ggml_vk_use_mul_mat_vec_id(op, device)) {
                         const ggml_tensor * ids = op->src[2];
                         // Shaders store row IDs as uint16_t slot and token indices.
                         if (ids->ne[0] > int64_t(UINT16_MAX) + 1 || ids->ne[1] > int64_t(UINT16_MAX) + 1) {
