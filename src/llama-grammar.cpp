@@ -500,8 +500,8 @@ const char * llama_grammar_parser::parse_sequence(
             total_rules = min_times;
         }
 
-        if (n_prev_rules * total_rules > MAX_REPETITION_THRESHOLD) {
-            throw std::runtime_error("number of rules that are going to be repeated multiplied by the new repetition exceeds sane defaults, please reduce the number of repetitions or rule complexity");
+        if (n_prev_rules * total_rules >= MAX_REPETITION_THRESHOLD) {
+            throw std::runtime_error(std::string("number of rules ") + std::to_string(n_prev_rules*total_rules) + " that are going to be repeated multiplied by the new repetition exceeds sane defaults, please reduce the number of repetitions or rule complexity");
         }
 
         if (min_times == 0) {
