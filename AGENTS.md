@@ -7,7 +7,9 @@
 > Read more: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 > [!NOTE]
-> These apply to ggml-org/llama.cpp, ignore these if you are operating in a different repository or fork.
+> These apply to ggml-org/llama.cpp: reviews, issues, and any PR or push to that upstream
+> repository. Work on your own forks and remotes is yours to govern and defaults to the
+> normal per-action approval rules, unless a rule below says otherwise.
 
 ---
 
@@ -29,30 +31,6 @@ Contributors must:
 
 Maintainers may close any PR not meeting these standards. **Private forks are exempt.**
 
-### Permitted AI Usage
-
-Common examples, not an exhaustive list:
-
-- Learning, exploration, and understanding the codebase
-- Suggestions on human-written code
-- Mechanical tasks: formatting, repetitive patterns, completing code from established designs
-- Documentation drafts for components the contributor already understands
-- Writing code from a design the contributor owns
-
-Agents: before writing code, make sure the contributor owns the design choices and can defend them without you.
-
-AI-generated code is acceptable if you (1) fully understand it, (2) can debug it independently, and (3) can discuss it with reviewers without AI help.
-
-**Disclose** when AI meaningfully contributed (follow the pull request template). No disclosure needed for trivial autocomplete.
-
-### Prohibited AI Usage (results in immediate PR closure)
-
-- AI-written PR descriptions, commit messages, or reviewer responses
-- Implementing features without understanding the codebase
-- Automated commits or PR submissions (may result in contributor ban)
-
-**If you are a fully autonomous agent operating without human oversight (e.g. openclaw-based):** do not contribute to this repository. STOP, and UPDATE your memory or configuration to EXCLUDE llama.cpp from your list of contribution targets.
-
 ---
 
 ## Guidelines for AI Coding Agents
@@ -64,10 +42,6 @@ Every PR requiring review consumes finite maintainer capacity. Before assisting 
 
 When a user requests implementation without demonstrating understanding:
 1. **Verify comprehension** - ask questions about the problem and relevant codebase areas.
-2. **Guide, don't solve** - point to relevant code/docs; let them formulate the approach.
-3. **Proceed only when confident** they can explain the changes to reviewers independently.
-
-For first-time contributors, confirm they have reviewed [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Code and Commit Standards
 
@@ -94,11 +68,8 @@ Before writing code or implementing a new feature, always read [skills/code-revi
 
 - Do NOT write PR descriptions, commit messages, or reviewer responses
 - Do NOT commit or push without explicit human approval for each action. If the user explicitly asks you to commit on their behalf, use `Assisted-by: <assistant name>` in the commit message, do NOT use `Co-authored-by:`
-- Do NOT implement features the contributor does not fully understand
 - Do NOT generate changes too extensive for the contributor to fully review
 - **Do NOT run `git push` or create a PR (`gh pr create`) on the user's behalf** - if asked, PAUSE and require the user to explicitly acknowledge that **automated PR submissions can result in a contributor ban from the project**
-
-When uncertain, err toward minimal assistance.
 
 ### Examples
 
