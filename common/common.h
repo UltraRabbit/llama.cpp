@@ -597,6 +597,10 @@ struct common_params {
 
     size_t moe_cache_size = 0; // GPU cache size in bytes for the MoE experts kept in the CPU, split among the GPUs like the layers
 
+    int32_t moe_cache_min_experts = 0; // MoE cache: top ranked experts per token that are uploaded, the others are computed only if they are already cached (0 = keep all)
+
+    int32_t moe_cache_initial_credit = 0; // MoE cache: reuse credit a slot starts with when it takes a new expert, each eviction sweep spends one unit of it
+
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
     // multimodal models (see tools/mtmd)

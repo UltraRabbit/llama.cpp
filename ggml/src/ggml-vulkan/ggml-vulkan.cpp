@@ -6609,7 +6609,19 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
     }
 }
 
+// Upper bound on n for a step to be treated as decode-like rather than batched.
+// A speculative-decode step evaluates n = 1 + n_draft tokens; common draft widths
+// sit well inside this. Prefill uses far larger n and is unaffected.
+static constexpr uint32_t MMVQ_MAX_DECODE_LIKE_N = 8;
+
 static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_t n, uint32_t k, ggml_type src0_type) {
+    const bool is_k_quant =
+        src0_type == GGML_TYPE_Q2_K ||
+        src0_type == GGML_TYPE_Q3_K ||
+        src0_type == GGML_TYPE_Q4_K ||
+        src0_type == GGML_TYPE_Q5_K ||
+        src0_type == GGML_TYPE_Q6_K;
+
     if (device->mmvq_mode == 1) {
         return true;
     } else if (device->mmvq_mode == -1) {
@@ -6623,8 +6635,10 @@ static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_
         return false;
     }
 
-    // MMVQ is generally good for batches
-    if (n > 1) {
+    // MMVQ is generally good for batches. Small n is a speculative-decode step
+    // (n = 1 + n_draft) where Q8_1 activation quant does not amortize and perturbs
+    // the logits, lowering draft acceptance. Let decode-like n reach the heuristics below.
+    if (n > MMVQ_MAX_DECODE_LIKE_N) {
         return true;
     }
 
@@ -6655,7 +6669,8 @@ static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_
         case GGML_TYPE_Q8_0:
             return device->architecture == vk_device_architecture::AMD_GCN;
         default:
-            return true;
+            // Q8_1 quant does not pay off for k-quants at small k.
+            return !is_k_quant || k >= 4096;
         }
     case VK_VENDOR_ID_INTEL:
         if (device->architecture == vk_device_architecture::INTEL_XE2) {
@@ -7949,14 +7964,29 @@ static void ggml_vk_mul_mat_vec_id_q_f16(ggml_backend_vk_context * ctx, vk_conte
     }
 }
 
-static bool ggml_vk_use_mul_mat_vec_id(const ggml_tensor * dst) {
+static bool ggml_vk_use_mul_mat_vec_id(const ggml_tensor * dst, const vk_device & device) {
     const ggml_tensor * src0 = dst->src[0];
-    const ggml_tensor * ids = dst->src[2];
-    return ids->ne[1] <= 8 && (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type));
+    const ggml_tensor * src1 = dst->src[1];
+    const ggml_tensor * ids  = dst->src[2];
+
+    // fast vectorized kernel for small batch matmul id ops
+    bool use_vec_id = ids->ne[1] <= 8;
+
+    // AMD RDNA3/4 tiled kernel is much slower than the vectorized one for decode
+    // with a few concurrent sequences (batch 9-64). coopmat2 devices already fix this.
+    if (!device->coopmat2) {
+        uint32_t n_tokens = dst->ne[2];
+        uint32_t n_per_tok = src1->ne[0];
+        uint32_t n_experts = src0->ne[2];
+        // density gate: only for MoE models with low routing density
+        use_vec_id |= (n_tokens * n_per_tok <= 2 * n_experts) && (n_tokens <= 64);
+    }
+
+    return use_vec_id && (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type));
 }
 
-bool ggml_vk_use_mul_mat_vec_id(const struct ggml_cgraph * cgraph, int node_idx) {
-    return ggml_vk_use_mul_mat_vec_id(cgraph->nodes[node_idx]);
+bool ggml_vk_use_mul_mat_vec_id(const struct ggml_cgraph * cgraph, int node_idx, const vk_device & device) {
+    return ggml_vk_use_mul_mat_vec_id(cgraph->nodes[node_idx], device);
 }
 
 void ggml_vk_mul_mat_id(ggml_backend_vk_context * ctx, vk_context& subctx, const struct ggml_cgraph * cgraph, int node_idx) {
@@ -7965,7 +7995,7 @@ void ggml_vk_mul_mat_id(ggml_backend_vk_context * ctx, vk_context& subctx, const
     ggml_tensor * src1 = dst->src[1];
     ggml_tensor * src2 = dst->src[2];
     VK_LOG_DEBUG("ggml_vk_mul_mat_id(" << src0 << ", " << src1 << ", " << src2 << ", " << dst << ")");
-    if (ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+    if (ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
         ggml_vk_mul_mat_vec_id_q_f16(ctx, subctx, cgraph, node_idx);
     } else {
         ggml_vk_mul_mat_id_q_f16(ctx, subctx, src0, src1, src2, dst);
@@ -13711,7 +13741,7 @@ bool ggml_vk_can_fuse(const ggml_backend_vk_context * ctx, const struct ggml_cgr
             return false;
         }
         // mat-vec only
-        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
             return false;
         }
         // shaders assume the types match
@@ -13746,7 +13776,7 @@ bool ggml_vk_can_fuse(const ggml_backend_vk_context * ctx, const struct ggml_cgr
             return false;
         }
         // mat-vec only
-        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx)) {
+        if (!ggml_vk_use_mul_mat_vec_id(cgraph, node_idx, ctx->device)) {
             return false;
         }
         // shaders assume the types match
@@ -15505,7 +15535,7 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
             {
                 ggml_type src0_type = op->src[0]->type;
                 if (op->op == GGML_OP_MUL_MAT_ID) {
-                    if (!ggml_vk_use_mul_mat_vec_id(op)) {
+                    if (!ggml_vk_use_mul_mat_vec_id(op, device)) {
                         const ggml_tensor * ids = op->src[2];
                         // Shaders store row IDs as uint16_t slot and token indices.
                         if (ids->ne[0] > int64_t(UINT16_MAX) + 1 || ids->ne[1] > int64_t(UINT16_MAX) + 1) {

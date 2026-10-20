@@ -590,6 +590,10 @@ struct server_slot {
 
             SLT_INF(*this, "stop processing: n_tokens = %d, truncated = %d\n", prompt.n_tokens(), truncated);
 
+            if (ctx_tgt) {
+                llama_moe_cache_print(ctx_tgt);
+            }
+
             t_last_used = ggml_time_us();
 
             state = SLOT_STATE_IDLE;

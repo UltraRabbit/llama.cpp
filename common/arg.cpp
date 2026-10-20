@@ -2788,6 +2788,28 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_MIB"));
     add_opt(common_arg(
+        {"--moe-cache-min-experts"}, "N",
+        "MoE cache: top ranked experts per token that are uploaded on a miss\n"
+        "the other experts are computed only if they are already cached (default: 0, keep all)",
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_min_experts = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_MIN_EXPERTS"));
+    add_opt(common_arg(
+        {"--moe-cache-initial-credit"}, "N",
+        "MoE cache: reuse credit a slot starts with when it takes a new expert, each eviction sweep spends one unit of it\n"
+        "a higher value keeps a new expert longer before it can be evicted (default: 0, maximum: 15)",
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_initial_credit = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_INITIAL_CREDIT"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",
