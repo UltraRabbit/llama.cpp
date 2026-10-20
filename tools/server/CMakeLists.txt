@@ -29,6 +29,8 @@ add_library(${TARGET} STATIC
     server-schema.h
     server-slot-sched.cpp
     server-slot-sched.h
+    server-buffer-manager.cpp
+    server-buffer-manager.h
 )
 
 if (BUILD_SHARED_LIBS)
