@@ -269,6 +269,10 @@ private:
     // not thread-safe, caller must hold mutex
     void add_model(server_model_meta && meta);
 
+    // the llama-server binary used to spawn a model instance; a preset may point to another
+    // build via server-binary, the router's own binary is used otherwise
+    std::string bin_path_for(const server_model_meta & meta) const;
+
     // ask the monitor to stop a running instance; send_exit is false for a child that was already force-killed
     // not thread-safe, caller must hold mutex
     void request_stop(const std::string & name, bool send_exit = true);
