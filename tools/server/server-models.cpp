@@ -422,6 +422,23 @@ server_models::server_models(
 
 server_models::~server_models() = default;
 
+std::string server_models::bin_path_for(const server_model_meta & meta) const {
+    std::string value;
+    if (!meta.preset.get_option(COMMON_ARG_PRESET_SERVER_BINARY, value) || value.empty()) {
+        return bin_path;
+    }
+
+    const std::string resolved = server_find_executable(value);
+    if (resolved.empty()) {
+        // keep the configured value so the spawn error names what was asked for
+        SRV_ERR("model name=%s: server binary '%s' was not found, loading this model will fail\n",
+            meta.name.c_str(), value.c_str());
+        return value;
+    }
+
+    return resolved;
+}
+
 void server_models::instance_t::request_exit() const {
     request_child_exit(*subproc);
 }
@@ -475,7 +492,7 @@ void server_models::add_model(server_model_meta && meta) {
         }
     }
 
-    meta.update_args(ctx_preset, bin_path); // render args
+    meta.update_args(ctx_preset, bin_path_for(meta)); // render args
     meta.update_caps(base_params);
     std::string name = meta.name;
     mapping[name] = instance_t{
@@ -1017,7 +1034,7 @@ void server_models::load_models() {
             }
 
             inst.meta.exit_code = 0; // clear failed state so the model can be reloaded
-            inst.meta.update_args(ctx_preset, bin_path);
+            inst.meta.update_args(ctx_preset, bin_path_for(inst.meta));
             inst.meta.update_caps(base_params);
         }
 
@@ -1228,7 +1245,7 @@ void server_models::load(const std::string & name, const load_options & opts) {
     {
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
-        inst.meta.update_args(ctx_preset, bin_path); // render args
+        inst.meta.update_args(ctx_preset, bin_path_for(inst.meta)); // render args
 
         std::vector<std::string> child_args = inst.meta.args; // copy
         std::vector<std::string> child_env  = base_env; // copy

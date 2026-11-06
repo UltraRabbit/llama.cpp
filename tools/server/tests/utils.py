@@ -35,6 +35,16 @@ DEFAULT_HTTP_TIMEOUT = 600
 DEFAULT_REQUEST_TIMEOUT = 600
 
 
+def get_server_bin_path(server_path: str | None = None) -> str:
+    if server_path is not None:
+        return server_path
+    if "LLAMA_SERVER_BIN_PATH" in os.environ:
+        return os.environ["LLAMA_SERVER_BIN_PATH"]
+    if os.name == "nt":
+        return os.path.abspath("../../../build/bin/Release/llama-server.exe")
+    return os.path.abspath("../../../build/bin/llama-server")
+
+
 class ServerResponse:
     headers: dict
     status_code: int
@@ -154,14 +164,7 @@ class ServerProcess:
         if self.external_server:
             print(f"[external_server]: Assuming external server running on {self.server_host}:{self.server_port}")
             return
-        if self.server_path is not None:
-            server_path = self.server_path
-        elif "LLAMA_SERVER_BIN_PATH" in os.environ:
-            server_path = os.environ["LLAMA_SERVER_BIN_PATH"]
-        elif os.name == "nt":
-            server_path = "../../../build/bin/Release/llama-server.exe"
-        else:
-            server_path = "../../../build/bin/llama-server"
+        server_path = get_server_bin_path(self.server_path)
         server_args = [
             "--port",
             self.server_port,

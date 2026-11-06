@@ -90,6 +90,73 @@ std::filesystem::path get_server_exec_path() {
 #endif
 }
 
+static bool is_spawnable_file(const std::filesystem::path & path) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return false;
+    }
+#ifndef _WIN32
+    return access(path.c_str(), X_OK) == 0;
+#else
+    return true;
+#endif
+}
+
+std::string server_find_executable(const std::string & name_or_path) {
+    if (name_or_path.empty()) {
+        return "";
+    }
+
+    const std::filesystem::path p{name_or_path};
+    if (p.has_parent_path() || p.is_absolute()) {
+        return is_spawnable_file(p) ? p.string() : "";
+    }
+
+    // a bare name is not resolved by execv, search next to this binary first, then PATH
+#ifdef _WIN32
+    const std::vector<std::string> names = { name_or_path + ".exe", name_or_path };
+#else
+    const std::vector<std::string> names = { name_or_path };
+#endif
+
+    try {
+        const auto dir = get_server_exec_path().parent_path();
+        for (const auto & name : names) {
+            if (is_spawnable_file(dir / name)) {
+                return (dir / name).string();
+            }
+        }
+    } catch (const std::exception & e) {
+        LOG_WRN("could not resolve the current executable path (%s), searching PATH only\n", e.what());
+    }
+
+    const std::string path_env = common_get_env("PATH");
+#ifdef _WIN32
+    constexpr char separator = ';';
+#else
+    constexpr char separator = ':';
+#endif
+    size_t start = 0;
+    while (start <= path_env.size()) {
+        size_t end = path_env.find(separator, start);
+        if (end == std::string::npos) {
+            end = path_env.size();
+        }
+        const std::string dir = path_env.substr(start, end - start);
+        if (!dir.empty()) {
+            for (const auto & name : names) {
+                const auto candidate = std::filesystem::path(dir) / name;
+                if (is_spawnable_file(candidate)) {
+                    return candidate.string();
+                }
+            }
+        }
+        start = end + 1;
+    }
+
+    return "";
+}
+
 json format_error_response(const std::string & message, const enum error_type type) {
     std::string type_str;
     int code = 500;
