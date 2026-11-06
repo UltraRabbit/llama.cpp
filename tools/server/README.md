@@ -2136,6 +2136,7 @@ We also offer additional options that are exclusive to presets (these aren't tre
 - `load-on-startup` (boolean): Controls whether the model loads automatically when the server starts. Only applies at startup: if the model list is reloaded later (for example after editing the preset file), a newly added model is listed but not loaded
 - `stop-timeout` (int, seconds): After requested unload, wait for this many seconds before forcing termination (default: 10)
 - `dedup-cache-models` (boolean): When the preset uses `hf-repo` pointing to a model that is already downloaded, hide the corresponding cached model entry from `GET /models` (the preset entry remains visible). Set it in the `[*]` section to apply to all presets.
+- `server-binary` (string, path): The `llama-server` binary used to run this model, so a model can be served by a different build (for example one built for another backend). Defaults to the binary running the router. A bare name is looked up next to the router binary, then in `PATH`. Set it in the `[*]` section to apply to all presets. The child has to speak the same router protocol as the router itself; when the router runs as the unified `llama` binary, it also has to accept the `serve` subcommand.
 
 ### Routing requests
 

@@ -99,6 +99,10 @@ json format_error_response(const std::string & message, const enum error_type ty
 // path of the running llama-server binary, used to spawn siblings. throws on failure
 std::filesystem::path get_server_exec_path();
 
+// resolve an executable to spawn: a value with a directory part must point to an existing file,
+// a bare name is looked up next to this binary first, then in PATH. returns empty if not found
+std::string server_find_executable(const std::string & name_or_path);
+
 //
 // random string / id
 //

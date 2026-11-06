@@ -555,6 +555,76 @@ def test_router_dedup_cache_models():
         os.remove(preset_path)
 
 
+def test_router_server_binary():
+    """server-binary spawns the model instance with the configured llama-server binary"""
+    global server
+
+    if os.name == "nt":
+        pytest.skip("the wrapper script used here is POSIX only")
+
+    os.makedirs(TMP_DIR, exist_ok=True)
+    preset_path = os.path.join(TMP_DIR, "test_server_binary.ini")
+    marker_path = os.path.join(TMP_DIR, "test_server_binary.marker")
+    wrapper_path = os.path.join(TMP_DIR, "test_server_binary_wrapper.sh")
+
+    # the wrapper records that it ran, then execs the real binary as the model instance
+    with open(wrapper_path, "w") as f:
+        f.write("#!/bin/sh\ntouch '%s'\nexec '%s' \"$@\"\n"
+                % (marker_path, get_server_bin_path()))
+    os.chmod(wrapper_path, 0o755)
+
+    with open(preset_path, "w") as f:
+        f.write(
+            "[wrapper-model]\n"
+            "hf-repo = ggml-org/tinygemma3-GGUF:Q8_0\n"
+            "server-binary = %s\n" % wrapper_path
+        )
+
+    server.no_models_autoload = True
+    server.models_preset = preset_path
+    server.start()
+
+    try:
+        _load_model_and_wait("wrapper-model")
+        assert os.path.exists(marker_path), "the configured server-binary was not executed"
+
+        res = server.make_request("POST", "/tokenize", data={"model": "wrapper-model", "content": "hello"})
+        assert res.status_code == 200
+        assert len(res.body["tokens"]) > 0
+    finally:
+        os.remove(preset_path)
+        os.remove(marker_path)
+        os.remove(wrapper_path)
+
+
+def test_router_server_binary_not_found():
+    """a model whose server-binary cannot be found does not fall back to the router binary"""
+    global server
+
+    os.makedirs(TMP_DIR, exist_ok=True)
+    preset_path = os.path.join(TMP_DIR, "test_server_binary_missing.ini")
+
+    with open(preset_path, "w") as f:
+        f.write(
+            "[missing-binary]\n"
+            "hf-repo = ggml-org/tinygemma3-GGUF:Q8_0\n"
+            "server-binary = %s\n" % os.path.join(TMP_DIR, "no-such-llama-server")
+        )
+
+    server.no_models_autoload = True
+    server.models_preset = preset_path
+    server.start()
+
+    try:
+        assert "missing-binary" in _get_model_ids(is_reload=False)
+
+        res = server.make_request("POST", "/models/load", data={"model": "missing-binary"})
+        assert res.status_code == 500
+        assert _get_model_status("missing-binary") == "unloaded"
+    finally:
+        os.remove(preset_path)
+
+
 def test_router_remote_preset():
     global server
     server.model_hf_repo = "ggml-org/test-preset-ci"
