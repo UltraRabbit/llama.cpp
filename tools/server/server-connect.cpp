@@ -22,10 +22,8 @@ static const std::string CONNECT_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjk
 
 #if defined(_WIN32)
 static const std::string CONNECT_EXE_NAME = "llama-connect.exe";
-static constexpr char    PATH_SEPARATOR   = ';';
 #else
 static const std::string CONNECT_EXE_NAME = "llama-connect";
-static constexpr char    PATH_SEPARATOR   = ':';
 #endif
 
 // how long to wait for the child to notice the closed stdin before killing it
@@ -128,40 +126,9 @@ static std::string upstream_host(const std::vector<std::string> & hosts) {
     return "";
 }
 
-static bool path_is_file(const std::filesystem::path & p) {
-    std::error_code ec;
-    return std::filesystem::is_regular_file(p, ec);
-}
-
 std::string server_connect::find_binary() {
-    // prefer the copy shipped next to llama-server over an unrelated one in PATH
-    try {
-        auto sibling = get_server_exec_path().parent_path() / CONNECT_EXE_NAME;
-        if (path_is_file(sibling)) {
-            return sibling.string();
-        }
-    } catch (const std::exception & e) {
-        SRV_WRN("could not resolve the llama-server path (%s), looking for llama-connect in PATH only\n", e.what());
-    }
-
-    const std::string path_env = common_get_env("PATH");
-    size_t start = 0;
-    while (start <= path_env.size()) {
-        size_t end = path_env.find(PATH_SEPARATOR, start);
-        if (end == std::string::npos) {
-            end = path_env.size();
-        }
-        const std::string dir = path_env.substr(start, end - start);
-        if (!dir.empty()) {
-            auto candidate = std::filesystem::path(dir) / CONNECT_EXE_NAME;
-            if (path_is_file(candidate)) {
-                return candidate.string();
-            }
-        }
-        start = end + 1;
-    }
-
-    return "";
+    // server_find_executable prefers the copy shipped next to llama-server over an unrelated one in PATH
+    return server_find_executable(CONNECT_EXE_NAME);
 }
 
 std::string server_connect::unavailable_reason(const common_params & params) {
