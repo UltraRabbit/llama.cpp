@@ -219,7 +219,7 @@ struct moe_cache_lru {
             }
             const int32_t s = evict(il);
             if (key_of[s] >= 0) {
-                slot_map[key_layer(key_of[s])][key_expert(key_of[s])] = -1;
+                slot_map[key_of[s] / n_expert][key_of[s] % n_expert] = -1;
             }
             key_of[s] = il*n_expert + e;
             slots[e] = s;
