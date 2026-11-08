@@ -2,7 +2,6 @@
 
 #include "ggml-backend.h"
 
-#include <cstddef>
 #include <map>
 #include <memory>
 #include <vector>
@@ -71,10 +70,6 @@ public:
     int64_t copy_experts(ggml_backend_t backend, const ggml_tensor * w, ggml_tensor * dst, int64_t e, int64_t last);
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
-
-    // log the counters accumulated since the previous call
-    // bucket 0 is ubatch up to 8 tokens, bucket 1 is the rest
-    void log_turn_stats() const;
 
 private:
     struct impl;
