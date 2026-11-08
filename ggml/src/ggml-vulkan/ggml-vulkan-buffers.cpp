@@ -144,9 +144,7 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
         } catch (const vk::SystemError& e) {
         }
     } else {
-        size_t set_index = 0;
-        bool done = false;
-        for (auto it = req_flags_list.begin(); it != req_flags_list.end(); it++, set_index++) {
+        for (auto it = req_flags_list.begin(); it != req_flags_list.end(); it++) {
             const auto & req_flags = *it;
 
             const std::vector<uint32_t> memory_type_indices = ggml_vk_find_memory_properties(&mem_props, &mem_req, req_flags);
@@ -154,6 +152,8 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
             if (memory_type_indices.empty()) {
                 continue;
             }
+
+            bool done = false;
 
             for (auto mtype_it = memory_type_indices.begin(); mtype_it != memory_type_indices.end(); mtype_it++) {
                 try {
@@ -174,13 +174,6 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
             if (done) {
                 break;
             }
-        }
-
-        // A non-preferred memory type set was used, meaning the preferred (e.g. device-local)
-        // allocation failed and we fell back to host-visible sysmem. Log it so VRAM pressure is visible.
-        if (done && set_index > 0) {
-            GGML_LOG_WARN("ggml_vulkan: Memory allocation of size %zu succeeded on a non-preferred "
-                          "memory type set; the preferred memory type was unavailable\n", size);
         }
     }
 
@@ -218,7 +211,8 @@ vk_buffer ggml_vk_create_buffer_check(vk_device& device, size_t size, vk::Memory
     try {
         return ggml_vk_create_buffer(device, size, {req_flags, fallback_flags});
     } catch (const vk::SystemError& e) {
-        GGML_LOG_WARN("ggml_vulkan: Memory allocation of size %zu failed: %s\n", size, e.what());
+        std::cerr << "ggml_vulkan: Memory allocation of size " << size << " failed." << std::endl;
+        std::cerr << "ggml_vulkan: " << e.what() << std::endl;
         throw e;
     }
 }
@@ -254,7 +248,8 @@ vk_buffer ggml_vk_create_buffer_device(vk_device& device, size_t size) {
             }
         }
     } catch (const vk::SystemError& e) {
-        GGML_LOG_WARN("ggml_vulkan: Device memory allocation of size %zu failed: %s\n", size, e.what());
+        std::cerr << "ggml_vulkan: Device memory allocation of size " << size << " failed." << std::endl;
+        std::cerr << "ggml_vulkan: " << e.what() << std::endl;
         throw e;
     }
 
