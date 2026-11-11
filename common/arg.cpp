@@ -4207,6 +4207,17 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_N_UBATCH"));
     add_opt(common_arg(
+        {"--spec-draft-ubatch-size", "-ubd"}, "N",
+        "physical maximum batch size of the draft context for child processes (compatibility passthrough, same as --spec-draft-n-ubatch)",
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            // Intentionally no-op: this parameter is only passed through to child processes,
+            // the main process uses --spec-draft-n-ubatch.
+        }
+    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_UBATCH_SIZE"));
+    add_opt(common_arg(
         {"--spec-synth-len"}, "L",
         "target mean synthetic acceptance length, including the target token (benchmarking only)",
         [](common_params & params, const std::string & value) {
