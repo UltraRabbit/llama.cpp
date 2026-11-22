@@ -1130,6 +1130,8 @@ private:
     int slots_debug = 0;  // env: LLAMA_SERVER_SLOTS_DEBUG
     int slots_n_diff = 0; // env: LLAMA_SERVER_SLOTS_N_DIFF
 
+    bool response_buffer_enabled = true; // env: LLAMA_SERVER_RESPONSE_BUFFER
+
     int n_empty_consecutive = 0;
 
     std::unique_ptr<server_prompt_cache> prompt_cache;
@@ -1608,6 +1610,15 @@ private:
 
             if (slots_n_diff) {
                 SRV_WRN("LLAMA_SERVER_SLOTS_N_DIFF = %d\n", slots_n_diff);
+            }
+        }
+
+        {
+            const char * LLAMA_SERVER_RESPONSE_BUFFER = getenv("LLAMA_SERVER_RESPONSE_BUFFER");
+            response_buffer_enabled = LLAMA_SERVER_RESPONSE_BUFFER ? atoi(LLAMA_SERVER_RESPONSE_BUFFER) : 1;
+
+            if (!response_buffer_enabled) {
+                SRV_WRN("LLAMA_SERVER_RESPONSE_BUFFER = %d\n", response_buffer_enabled);
             }
         }
 
@@ -2165,7 +2176,7 @@ private:
 
             slot.add_token(result);
             if (slot.task->params.stream) {
-                buffer_manager.set_enabled(slot.id, true);
+                buffer_manager.set_enabled(slot.id, response_buffer_enabled);
                 buffer_manager.submit_result(slot.id, result,
                     [this, &slot](const completion_token_output& tkn) {
                         send_partial_response(slot, tkn, false);
